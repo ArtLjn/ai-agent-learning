@@ -1,10 +1,28 @@
 # HTTP API 接口协议
 
+> 版本：v2.0
+> 日期：2026-07-01
+> 状态：v2.0 新增「rag-service HTTP API」与「主系统 v2.0 新增 HTTP API」两章，对齐双项目 + 4 大模块架构
+> 关联设计：[11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) · [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) · [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md)
+
+## 0. v2.0 变更摘要
+
+| 变更类型 | 内容 |
+| --- | --- |
+| 新增独立项目 | `rag-service`（端口 8001），提供 `/parse` `/ingest` `/retrieve` `/rerank` `/collections/{name}/documents` `/health` |
+| 主系统新增 API（开发人员模块） | `/api/admin/traces/*`、`/api/admin/prompts/*`、`/api/admin/rag/debug`、`/api/admin/stats/tokens*`、`/api/admin/stats/quota/{user_id}` |
+| 主系统新增 API（管理员模块） | `/api/admin/users`、`PATCH /api/admin/users/{user_id}`、`/api/admin/stats/adoption` |
+| 通信契约 | 主系统通过 `tools/rag_client.py`（待建）调用 rag-service，详见 [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) 第 10 章 |
+
+> v1.x 的 `/api/tickets`、`/api/reviews`、`/api/knowledge` 等接口保持不变，本章新增内容追加在原章节之后。
+
 ## 1. 基本约定
 
 后端业务接口统一以 `/api` 为前缀。请求和响应默认使用 JSON。接口实现位置为 `src/multi_agent_system/api/routes.py`，鉴权接口位于 `src/multi_agent_system/api/auth_routes.py`。
 
 业务路由默认要求登录；当配置项 `auth_enabled=false` 时，`require_login` 会自动放行，便于本地演示。
+
+返回体统一结构：`{ "code": "OK" | "FAILED", "message": str, "data": any }`（rag-service 与主系统一致）。本章示例为突出字段含义，多数仅展示 `data` 部分。
 
 ## 2. 鉴权接口
 
@@ -485,3 +503,398 @@
 | GET | `/health` | 服务健康状态、缓存和模型路由摘要 |
 | GET | `/metrics` | JSON 格式运行指标 |
 | GET | `/prometheus` | Prometheus exposition 格式指标 |
+
+## 9. rag-service HTTP API（v2.0 新增）
+
+> rag-service 是 v2.0 抽离的**独立项目**，监听端口 `8001`，提供可复用的 PDF 解析、向量化、检索、重排能力。设计详见 [11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md)。
+>
+> 该服务**不**带 `/api` 前缀，路由直接挂在根路径。所有接口走 JSON；文件上传走 multipart；返回体统一 `{ "code": "OK" | "FAILED", "message": str, "data": any }`。
+>
+> 主系统通过 `src/multi_agent_system/tools/rag_client.py`（待建）调用本服务，通信契约见 [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) 第 10 章。
+
+### 9.1 POST /parse
+
+仅做文档解析与分块，**不写入向量库**。用于调用方预览分块效果或调试分块策略。
+
+请求字段：
+
+| 字段 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `file` | multipart form | file | 二选一 | 原始文档（PDF 走文件上传） |
+| `text` | multipart form / JSON | string | 二选一 | TXT / Markdown 可直接传文本 |
+| `strategy` | JSON body | string | 否 | `semantic` \| `fixed` \| `structure_aware`，默认 `structure_aware` |
+| `chunk_size` | JSON body | int | 否 | 仅 `fixed` 策略生效，默认 500 |
+| `chunk_overlap` | JSON body | int | 否 | 默认 50 |
+
+响应 `data`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `doc_id` | string | 文档内容指纹（MD5 前 8 位） |
+| `chunks` | array | 分块列表，每项含 `content` `chunk_index` `metadata.page` `metadata.category` |
+| `layout_summary` | object | 版面分析摘要（标题数、段落数、表格数、图片数） |
+
+错误码：
+
+| HTTP | 错误码 | 场景 |
+| --- | --- | --- |
+| 400 | `UNSUPPORTED_FORMAT` | 不支持的文档格式 |
+| 422 | `PARSE_FAILED` | 解析过程异常 |
+| 507 | `MODEL_UNAVAILABLE` | OCR / 版面模型加载失败 |
+
+示例：
+
+```bash
+curl -X POST http://localhost:8001/parse \
+  -F "file=@manual.pdf" \
+  -F "strategy=structure_aware"
+```
+
+```json
+{
+  "code": "OK",
+  "data": {
+    "doc_id": "a1b2c3d4",
+    "chunks": [
+      {"content": "...", "chunk_index": 0, "metadata": {"page": 1, "category": "title"}}
+    ],
+    "layout_summary": {"titles": 8, "paragraphs": 42, "tables": 3, "figures": 2}
+  }
+}
+```
+
+### 9.2 POST /ingest
+
+完整链路：解析 → 分块 → 向量化 → 写入 Qdrant。
+
+请求字段：
+
+| 字段 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `file` / `text` | form / JSON | file / string | 二选一 | 原始文档 |
+| `collection` | JSON body | string | 是 | 目标 collection 名 |
+| `strategy` | JSON body | string | 否 | 同 `/parse` |
+| `metadata.source` | JSON body | string | 否 | 文档来源标识 |
+| `metadata.category` | JSON body | string | 否 | 业务类别（如 `technical` / `policy`） |
+
+响应 `data`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `doc_id` | string | 文档 ID |
+| `chunk_count` | int | 实际写入分块数 |
+| `collection` | string | 实际写入的 collection |
+
+错误码：
+
+| HTTP | 错误码 | 场景 |
+| --- | --- | --- |
+| 404 | `COLLECTION_NOT_FOUND` | 目标 collection 不存在 |
+| 422 | `INGEST_FAILED` | 入库过程异常 |
+| 503 | `QDRANT_UNAVAILABLE` | Qdrant 不可用 |
+
+### 9.3 POST /retrieve
+
+混合检索入口。默认 `hybrid` 模式（向量 + BM25 + RRF 融合）。
+
+请求字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `query` | string | 是 | 查询语句 |
+| `collection` | string | 是 | 目标 collection |
+| `mode` | string | 否 | `vector` \| `bm25` \| `hybrid`，默认 `hybrid` |
+| `top_k` | int | 否 | 默认 10 |
+| `filters` | object | 否 | 元数据过滤（如 `{"category": "technical"}`） |
+| `use_hyde` | bool | 否 | 是否启用 HyDE 查询改写，默认 false |
+
+响应 `data`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `results` | array | 每项含 `id` `content` `score` `doc_id` `chunk_index` `metadata` |
+| `debug.query_vector_dim` | int | 调试模式时返回 |
+
+错误码：
+
+| HTTP | 错误码 | 场景 |
+| --- | --- | --- |
+| 400 | `INVALID_MODE` | mode 取值非法 |
+| 503 | `QDRANT_UNAVAILABLE` | Qdrant 不可用 |
+
+示例响应：
+
+```json
+{
+  "code": "OK",
+  "data": {
+    "results": [
+      {
+        "id": "ch-01",
+        "content": "登录失败排查步骤：1. 检查账号状态...",
+        "score": 0.82,
+        "doc_id": "a1b2c3d4",
+        "chunk_index": 0,
+        "metadata": {"source": "manual.pdf", "page": 1, "category": "technical"}
+      }
+    ]
+  }
+}
+```
+
+### 9.4 POST /rerank
+
+Cross-Encoder 重排。通常与 `/retrieve` 串行使用：`/retrieve` 召回 top-20 → `/rerank` 取 top-5。
+
+请求字段：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `query` | string | 是 | 原始查询 |
+| `documents` | array | 是 | 待重排文档列表（结构同 `/retrieve` 的 results） |
+| `top_k` | int | 否 | 默认 5 |
+| `model` | string | 否 | 默认 `BAAI/bge-reranker-v2-m3` |
+
+响应 `data`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `results` | array | 重排后的文档，按相关性降序 |
+
+错误码：
+
+| HTTP | 错误码 | 场景 |
+| --- | --- | --- |
+| 507 | `RERANKER_MODEL_UNAVAILABLE` | Cross-Encoder 加载失败（自动降级为按原 score 排序并附 warning） |
+
+### 9.5 GET /collections/{name}/documents
+
+查询指定 collection 内的文档元数据列表。
+
+请求字段：
+
+| 字段 | 位置 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- | --- |
+| `name` | path | string | 是 | collection 名 |
+| `page` | query | int | 否 | 默认 1 |
+| `page_size` | query | int | 否 | 默认 20 |
+
+响应 `data`：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `total` | int | 文档总数 |
+| `documents` | array | 每项含 `doc_id` `chunk_count` `metadata` `ingested_at` |
+
+### 9.6 GET /health
+
+健康检查，无鉴权。
+
+```json
+{
+  "status": "ok",
+  "components": {
+    "qdrant": "ok",
+    "embedder": "ok",
+    "reranker": "ok"
+  }
+}
+```
+
+任一关键组件不可用则 `status=degraded`。主系统 `rag_client.py` 在 `degraded` 状态下会跳过 `/rerank` 仅用 `/retrieve`，详见 [11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) 第 11、13 章。
+
+## 10. 主系统 v2.0 新增 HTTP API
+
+> 以下接口均挂在主系统（端口 8000），统一 `/api/admin/*` 前缀，要求 admin 鉴权（与第 7 章人工审核接口同套 `require_admin`）。设计背景见 [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md) 与 [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md)。
+
+### 10.1 开发人员模块
+
+#### 10.1.1 GET /api/admin/traces/{ticket_id}
+
+获取工单的完整 trace（含 spans 树）。响应字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `trace_id` | string | trace ID |
+| `ticket_id` | string | 工单 ID |
+| `status` | string | trace 状态 |
+| `total_tokens` | int | 累计 token（v1.1 P0 修复后才有真实值） |
+| `spans` | array | span 树，每项含 `span_id` `parent_span_id` `span_type` `name` `duration` `metadata` |
+
+`spans[].metadata` 内可能包含 `decision` / `token_usage` / `rag_stats` 三种子结构，schema 见 [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) 第 11、12 章。
+
+#### 10.1.2 GET /api/admin/traces/{ticket_id}/spans/{span_id}
+
+获取单个 span 的详情，包括 `input_data` `output_data` `metadata_` 全量字段。主要用于 Trace 决策树的"展开节点详情"。
+
+#### 10.1.3 GET /api/admin/prompts/{agent_name}/versions
+
+Prompt 版本列表。`agent_name` 取值：`ticket_intent` / `classifier` / `react_processor` / `reviewer` / `coordinator`。
+
+响应：
+
+```json
+{
+  "agent_name": "classifier",
+  "versions": [
+    {
+      "version": 3,
+      "is_active": true,
+      "template": "You are an expert classifier...",
+      "note": "增加 few-shot 示例",
+      "created_by": "dev-001",
+      "created_at": "2026-07-01T10:00:00"
+    }
+  ]
+}
+```
+
+#### 10.1.4 POST /api/admin/prompts/{agent_name}/versions
+
+新建版本。请求体：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `template` | string | 是 | Prompt 模板原文 |
+| `note` | string | 否 | 版本说明（few-shot 改动、参数调整等） |
+
+响应：返回新版本的 `version` 编号（同 agent_name 内自增）。校验规则：`agent_name` 必须属于 5 个 Agent 之一，否则 422。
+
+#### 10.1.5 POST /api/admin/prompts/{agent_name}/versions/{version}/activate
+
+激活指定版本。事务内完成：同 agent_name 下其他版本 `is_active=false`，目标版本 `is_active=true`。响应 `{ "status": "ok", "activated_version": 3 }`。
+
+#### 10.1.6 POST /api/admin/rag/debug
+
+RAG 检索调试器入口。**透传**到 rag-service，主系统侧不做检索逻辑。
+
+请求体：
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `query` | string | 是 | 查询语句 |
+| `mode` | string | 否 | `vector` / `bm25` / `hybrid`，默认 `hybrid` |
+| `top_k` | int | 否 | 默认 10 |
+| `rerank` | bool | 否 | 是否对结果做重排对比，默认 true |
+| `collection` | string | 否 | 默认 `knowledge_base` |
+
+响应（含重排前后对比与排名变化）：
+
+```json
+{
+  "query": "登录失败如何排查",
+  "mode": "hybrid",
+  "retrieval_results": [
+    {"chunk_id": "ch-01", "score": 0.82, "payload": {"doc_id": "...", "page": 1}}
+  ],
+  "rerank_results": [
+    {"chunk_id": "ch-01", "score": 0.91, "rank_change": 2}
+  ],
+  "elapsed_ms": 245
+}
+```
+
+rag-service 不可用时返回 503，主系统不缓存降级结果（调试场景必须暴露真实状态）。
+
+#### 10.1.7 GET /api/admin/stats/tokens
+
+近 N 天 Token 用量汇总，按 `model × call_type` 分组。查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `days` | int | 否 | 默认 7 |
+
+响应：
+
+```json
+{
+  "total_tokens": 128500,
+  "estimated_cost_cny": 1.92,
+  "by_model": [{"model": "glm-4.6", "tokens": 96000}, {"model": "glm-4.5-air", "tokens": 32500}],
+  "by_call_type": [{"call_type": "process", "tokens": 78000}, {"call_type": "classify", "tokens": 18500}]
+}
+```
+
+`call_type` 枚举：`intent` / `classify` / `process` / `review` / `coordinator` / `rag`，定义见 [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) 第 12.3 节。
+
+#### 10.1.8 GET /api/admin/stats/tokens/daily
+
+指定日期明细。查询参数 `date`（YYYY-MM-DD，默认今天）。返回该日按小时桶聚合的 token 用量。
+
+#### 10.1.9 GET /api/admin/stats/tokens/hourly
+
+按小时热力图。数据源：从 `spans` 表取 `span_type='llm_call'` 的 span，按 `start_time` 小时分桶聚合 token。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `days` | int | 否 | 默认 7（最近 N 天 × 24 小时矩阵） |
+
+#### 10.1.10 GET /api/admin/stats/quota/{user_id}
+
+查询某用户的配额状态。响应：
+
+```json
+{
+  "user_id": "U001",
+  "monthly_usage": 85000,
+  "monthly_limit": 200000,
+  "monthly_remaining": 115000,
+  "weekly_usage": 22000,
+  "weekly_limit": 50000,
+  "weekly_remaining": 28000,
+  "reset_at": "2026-08-01T00:00:00"
+}
+```
+
+`monthly_limit` / `weekly_limit` 优先取 `users.token_monthly_limit` / `users.token_weekly_limit`，为 NULL 时回落到 `config.yaml` 的 `token_quota.*` 默认值。
+
+### 10.2 管理员模块
+
+#### 10.2.1 GET /api/admin/users
+
+用户列表（含配额覆写字段）。查询参数 `limit` / `offset` / `keyword`。响应每项含 `user_id` `name` `token_monthly_limit` `token_weekly_limit` `created_at`。
+
+#### 10.2.2 PATCH /api/admin/users/{user_id}
+
+调整用户配额覆写。请求体：
+
+```json
+{
+  "token_monthly_limit": 300000,
+  "token_weekly_limit": 75000
+}
+```
+
+字段传 `null` 表示清除覆写、回落到默认配额。响应返回更新后的用户对象。
+
+#### 10.2.3 GET /api/admin/stats/adoption
+
+决策采纳率统计（论文核心评估指标）。查询参数 `days`（默认 7）。
+
+```json
+{
+  "total_decisions": 48,
+  "ai_adoption_rate": 0.58,
+  "by_decision": {
+    "approve": 18,
+    "rewrite": 8,
+    "reprocess": 6,
+    "reject": 4,
+    "request_info": 12
+  },
+  "ai_consistent": 28
+}
+```
+
+`ai_adoption_rate` = 审核员最终决策与 CoordinatorAgent `recommended_decision` 一致的工单比例，按第 7.4 节同名指标扩展为时间序列。
+
+## 11. 相关文档
+
+- [01_正式设计/09_人工审核工作台设计.md](../01_正式设计/09_人工审核工作台设计.md) — 管理员模块（鉴权 `require_admin`、人工审核闭环）
+- [01_正式设计/11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) — rag-service 完整设计（v2.0 新增）
+- [01_正式设计/12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) — `/api/admin/stats/tokens*` 与配额设计（v2.0 新增）
+- [01_正式设计/13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md) — 开发人员模块整体设计（v2.0 新增）
+- [02_WebSocket实时推送协议.md](./02_WebSocket实时推送协议.md) — 工单状态实时推送
+- [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) — Agent 输出、RAG Client、决策点五元组、Token 累加契约

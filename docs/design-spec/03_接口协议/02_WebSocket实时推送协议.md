@@ -1,5 +1,7 @@
 # WebSocket 实时推送协议
 
+> **v2.0 修订（2026-07-01）**：v2.0 新增开发人员工作台的事件推送（trace 写入、token 累加、配额告警等），详见下文「v2.0 新增事件」。
+
 ## 1. 设计目标
 
 WebSocket 用于向前端实时推送工单处理进度。由于工单工作流在后台异步执行，前端不能只依赖 HTTP 轮询获取状态，实时推送能让用户看到每个 Agent 节点的完成情况。
@@ -199,3 +201,21 @@ WebSocket 用于向前端实时推送工单处理进度。由于工单工作流�
 - 全局监控连接。
 
 当客户端断开时，后端从连接列表中移除对应 WebSocket。发送消息失败时，也会清理断开的连接。
+
+## 8. v2.0 新增事件
+
+v2.0 起新增开发人员工作台相关事件，主系统通过全局监控通道（`/api/ws/monitor`）按 `type` 字段分发。订阅对象按角色区分。
+
+| 事件 | 触发时机 | 推送对象 |
+| --- | --- | --- |
+| `trace_updated` | 工单的 trace 有新 span 写入 | 订阅该 ticket 的开发人员 |
+| `token_quota_warning` | 用户 token 用量达 80% | 该用户 + 管理员 |
+| `token_quota_exceeded` | 用户 token 用量达 100% | 该用户 + 管理员（触发降级） |
+| `rag_service_unhealthy` | rag-service /health 异常 | 开发人员 |
+| `prompt_version_activated` | Prompt 新版本被激活 | 开发人员 |
+| `agent_call_failed` | 任一 Agent 调用 LLM 失败 | 开发人员 |
+
+## 相关文档
+
+- [12_Token控制台.md](../01_正式设计/12_Token控制台.md) — Token 配额与降级策略
+- [13_开发人员工作台.md](../01_正式设计/13_开发人员工作台.md) — 开发人员工作台事件订阅与展示
