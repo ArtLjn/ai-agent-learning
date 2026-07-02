@@ -153,8 +153,8 @@ class DatabaseManager:
     async def _apply_schema_migrations(self, conn: AsyncConnection) -> None:
         """增量列迁移：ORM 新增列在已有表上不会自动 ALTER，这里幂等补上。
 
-        v2.0 给 users 表加了 7 列（username/password_hash/nickname/contact/
-        preferred_categories/status/created_at），生产 MySQL 里旧表只有
+        v2.0 给 users 表加了 8 列（username/password_hash/nickname/contact/
+        preferred_categories/status/created_at/role），生产 MySQL 里旧表只有
         v1.x 的 7 列，启动时检查 information_schema 缺哪列才 ALTER，
         新建库（如测试 sqlite）由 create_all 直接建好，这里跳过。
         """
@@ -166,6 +166,7 @@ class DatabaseManager:
             ("users", "preferred_categories", "TEXT"),
             ("users", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
             ("users", "created_at", "DATETIME"),
+            ("users", "role", "VARCHAR(16) NOT NULL DEFAULT 'user'"),
         ]
 
         # 取当前库的现有列，避免逐列查询
@@ -191,6 +192,8 @@ class DatabaseManager:
             extra = ""
             if col == "username":
                 extra = ", ADD UNIQUE INDEX idx_users_username (username)"
+            elif col == "role":
+                extra = ", ADD INDEX idx_users_role (role)"
             await conn.execute(text(
                 f"ALTER TABLE `{table}` ADD COLUMN `{col}` {dtype}{extra}"
             ))
@@ -421,6 +424,8 @@ class DatabaseManager:
                 preferred_categories=preferred_json,
                 vip_level=0,
                 status="active",
+                # 注册接口不允许选角色，强制 user；提权路径只走管理员后台
+                role="user",
                 created_at=datetime.utcnow(),
             )
             session.add(obj)
@@ -464,6 +469,27 @@ class DatabaseManager:
                 return
             obj.password_hash = password_hash
             await session.commit()
+
+    async def update_user_role(self, user_id: str, role: str) -> dict[str, Any] | None:
+        """更新用户角色（admin/reviewer/user/developer）。供 A-04 管理后台调用。"""
+        async with self._session() as session:
+            obj = await session.get(UserORM, user_id)
+            if obj is None:
+                return None
+            obj.role = role
+            await session.commit()
+        return await self.get_user(user_id)
+
+    async def list_users_by_role(self, role: str) -> list[dict[str, Any]]:
+        """按角色查用户列表。"""
+        async with self._session() as session:
+            stmt = (
+                select(UserORM)
+                .where(UserORM.role == role)
+                .order_by(UserORM.created_at.desc())
+            )
+            result = await session.execute(stmt)
+            return [self._orm_to_dict(o) for o in result.scalars().all()]
 
     async def get_user_tickets(
         self, user_id: str, limit: int = 5

@@ -195,3 +195,45 @@ def test_patch_me_invalid_category_returns_422(client: TestClient) -> None:
     body = resp.json()
     assert body["error"] == "invalid_category"
     assert "unknown_cat" in body["invalid"]
+
+
+# ============================================================
+# role 字段（fix-role-based-access）
+# ============================================================
+
+
+def test_get_me_returns_role_field(client: TestClient) -> None:
+    """GET /users/me 必须返回 role 字段。"""
+    _register_and_keep_session(client)
+    body = client.get("/api/users/me").json()
+    assert body["role"] == "user"
+
+
+def test_get_me_permissions_returns_user_routes(client: TestClient) -> None:
+    """普通 user 调 /users/me/permissions 返回 user 可见路由。"""
+    _register_and_keep_session(client)
+    resp = client.get("/api/users/me/permissions")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["role"] == "user"
+    assert set(body["routes"]) == {"/", "/tickets", "/tickets/:id", "/profile"}
+    # 不含 admin 专属路由
+    for forbidden in ("/reviews", "/knowledge", "/settings", "/monitor"):
+        assert forbidden not in body["routes"]
+
+
+def test_get_me_permissions_after_role_change(
+    client: TestClient, app: FastAPI
+) -> None:
+    """admin 在 DB 改 role 后，老 session 调 /permissions 应反映最新角色。"""
+    user = _register_and_keep_session(client)
+    # DB 改 role=reviewer
+    client.portal.call(
+        app.state.db_manager.update_user_role, user["user_id"], "reviewer"
+    )
+    # session 里的 role 仍是 user，但 /permissions 端点会兜底查 DB
+    resp = client.get("/api/users/me/permissions")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["role"] == "reviewer"
+    assert "/reviews" in body["routes"]

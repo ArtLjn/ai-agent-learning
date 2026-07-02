@@ -17,6 +17,7 @@ from src.multi_agent_system.core.auth import (
     require_login,
     verify_password,
 )
+from src.multi_agent_system.core.permissions import get_role_routes
 
 __all__ = ["router"]
 
@@ -67,6 +68,7 @@ async def get_me(
             "status": "active",
             "vip_level": 0,
             "preferred_categories": [],
+            "role": session_user.get("role", "admin"),
         })
 
     db_manager = request.app.state.db_manager
@@ -77,6 +79,47 @@ async def get_me(
             detail="用户记录不存在",
         )
     return public_user(user)
+
+
+@router.get("/me/permissions")
+async def get_my_permissions(
+    request: Request,
+    session_user: dict[str, Any] = Depends(require_login),
+) -> dict[str, Any]:
+    """返回当前 role 可见的前端路由列表（供 Sidebar 过滤）。
+
+    role 解析优先级（DB 是权威，避免管理员后台改 role 后老 session 失效）：
+      1. 注册用户 → 查 DB 拿最新 role
+      2. Settings 兜底管理员（无 DB 行）→ session.role（admin）
+      3. 演示模式（auth_enabled=false）→ admin
+      4. 兜底 user
+    """
+    from src.multi_agent_system.config import Settings
+
+    user_id = _resolve_current_user_id(session_user)
+    role: str | None = None
+
+    # 注册用户走 DB（权威）
+    if user_id is not None:
+        db_manager = request.app.state.db_manager
+        db_user = await db_manager.get_user(user_id)
+        if db_user is not None:
+            role = db_user.get("role") or "user"
+
+    # Settings 兜底管理员（无 DB 行）→ session 里的 role（login 时写 admin）
+    if role is None:
+        role = session_user.get("role")
+
+    # 演示模式视为 admin
+    if not role and not Settings().auth_enabled:
+        role = "admin"
+    if not role:
+        role = "user"
+
+    return {
+        "role": role,
+        "routes": get_role_routes(role),
+    }
 
 
 @router.patch("/me")

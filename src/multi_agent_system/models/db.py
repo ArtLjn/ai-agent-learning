@@ -68,6 +68,7 @@ class UserORM(Base):
     - nickname / contact / preferred_categories：可由用户在 Profile 页面维护
     - status：active/banned，配合 A-04 用户管理使用
     - created_at：注册时间
+    - role：user / reviewer / admin / developer，决定 Sidebar 可见路由与 API 权限
     旧字段（name / vip_level / preferred_category / avg_satisfaction / total_tickets /
     last_contact）保留，作为扩展上下文使用。
     """
@@ -89,6 +90,7 @@ class UserORM(Base):
     preferred_categories: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(16), default="active")
     created_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=func.now())
+    role: Mapped[str] = mapped_column(String(16), default="user", index=True)
 
 
 class CheckpointORM(Base):

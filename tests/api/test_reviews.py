@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
 from src.multi_agent_system.api.routes import router
 from src.multi_agent_system.core.database import DatabaseManager
@@ -40,6 +41,7 @@ def _build_app() -> FastAPI:
         await db_manager.close()
 
     app = FastAPI(lifespan=lifespan)
+    app.add_middleware(SessionMiddleware, secret_key="test-session-secret-32-chars-or-more")
     app.include_router(router, prefix="/api")
     return app
 
@@ -47,6 +49,14 @@ def _build_app() -> FastAPI:
 @pytest.fixture
 def app():
     return _build_app()
+
+
+@pytest.fixture(autouse=True)
+def _disable_auth_for_reviews_tests(monkeypatch):
+    """reviews/* 路由现在带 require_role("reviewer","admin")，测试 fixture
+    无登录态会被 401/403 拦下。演示模式下 require_role 视为 admin 放行，
+    让既有测试逻辑保持不变。"""
+    monkeypatch.setenv("AUTH_ENABLED", "false")
 
 
 @pytest.fixture
