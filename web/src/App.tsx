@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { RequireAuth } from '@/components/RequireAuth'
+import { RequireRole } from '@/components/RequireRole'
 import { Dashboard } from '@/pages/Dashboard'
 import { Tickets } from '@/pages/Tickets'
 import { TicketDetail } from '@/pages/TicketDetail'
@@ -25,14 +26,45 @@ function App() {
             </RequireAuth>
           }
         >
+          {/* 全角色可见 */}
           <Route index element={<Dashboard />} />
           <Route path="tickets" element={<Tickets />} />
           <Route path="tickets/:id" element={<TicketDetail />} />
-          <Route path="reviews" element={<ReviewWorkbench />} />
-          <Route path="monitor" element={<AgentMonitor />} />
-          <Route path="knowledge" element={<Knowledge />} />
-          <Route path="settings" element={<Settings />} />
           <Route path="profile" element={<Profile />} />
+
+          {/* 角色受限 */}
+          <Route
+            path="reviews"
+            element={
+              <RequireRole roles={['reviewer', 'admin']}>
+                <ReviewWorkbench />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="knowledge"
+            element={
+              <RequireRole roles={['admin']}>
+                <Knowledge />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="monitor"
+            element={
+              <RequireRole roles={['developer', 'admin']}>
+                <AgentMonitor />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="settings"
+            element={
+              <RequireRole roles={['admin']}>
+                <Settings />
+              </RequireRole>
+            }
+          />
         </Route>
       </Routes>
     </BrowserRouter>

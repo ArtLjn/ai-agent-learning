@@ -50,6 +50,7 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         ),
         "created_at": user.get("created_at"),
         "status": user.get("status", "active"),
+        "role": user.get("role", "user"),
     }
 
 
@@ -74,7 +75,11 @@ class RegisterRequest(BaseModel):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest, request: Request) -> LoginResponse:
-    """用户名 + 密码登录，成功后写入 session。"""
+    """用户名 + 密码登录，成功后写入 session。
+
+    Settings.auth_username 兜底管理员视为 admin 角色；DB-backed 用户走 register
+    流程时 role=user，管理员可在后台改。
+    """
     settings = Settings()
     ok = (
         body.username == settings.auth_username
@@ -85,7 +90,10 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
-    request.session["user"] = {"username": body.username}
+    request.session["user"] = {
+        "username": body.username,
+        "role": "admin",
+    }
     return LoginResponse(username=body.username)
 
 
@@ -131,6 +139,8 @@ async def register(body: RegisterRequest, request: Request) -> JSONResponse:
         "user_id": user["user_id"],
         "username": user["username"],
         "nickname": user.get("nickname"),
+        # 注册流程产生的 role 必为 user；提权路径只走 A-04 管理员后台
+        "role": user.get("role", "user"),
     }
 
     safe_user = public_user(user)
@@ -153,5 +163,17 @@ async def me(request: Request) -> dict[str, Any]:
     user = get_current_user(request)
     settings = Settings()
     if user:
-        return {"logged_in": True, "username": user.get("username"), "auth_enabled": settings.auth_enabled}
-    return {"logged_in": False, "username": None, "auth_enabled": settings.auth_enabled}
+        # 演示模式视为 admin（兜底放行所有路由）
+        role = user.get("role") or ("admin" if not settings.auth_enabled else "user")
+        return {
+            "logged_in": True,
+            "username": user.get("username"),
+            "auth_enabled": settings.auth_enabled,
+            "role": role,
+        }
+    return {
+        "logged_in": False,
+        "username": None,
+        "auth_enabled": settings.auth_enabled,
+        "role": None,
+    }

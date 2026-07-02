@@ -7,11 +7,12 @@ from datetime import datetime
 from functools import partial
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from loguru import logger
 
 from src.multi_agent_system.core import CachedLLMClient
 from src.multi_agent_system.core.logging import generate_trace_id
+from src.multi_agent_system.core.permissions import require_role
 from src.multi_agent_system.models.message import TicketMessageCreate
 from src.multi_agent_system.models.ticket import (
     BatchTicketCreate,
@@ -519,6 +520,7 @@ async def list_knowledge(
     request: Request,
     limit: int = Query(default=50, ge=1, le=200, description="最多读取的分块数量"),
     offset: str | None = Query(default=None, description="Qdrant scroll 偏移量"),
+    _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
     """查看知识库中已有文档列表和内容。"""
     knowledge_tool = request.app.state.knowledge_tool
@@ -543,6 +545,7 @@ async def list_knowledge(
 async def upload_knowledge(
     body: dict[str, Any],
     request: Request,
+    _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
     """上传文档到知识库。
 
@@ -594,7 +597,10 @@ async def upload_knowledge(
 
 
 @router.get("/settings", response_model=dict)
-async def get_system_settings(request: Request) -> dict:
+async def get_system_settings(
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
     """获取前端设置页展示用的只读配置摘要。"""
     settings = request.app.state.settings
     knowledge_tool = request.app.state.knowledge_tool
@@ -732,6 +738,7 @@ async def list_review_queue(
     priority: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    _role_check: dict = Depends(require_role("reviewer", "admin")),
 ) -> dict:
     """查询待人工审核队列，按优先级 + 等待时长排序。"""
     db_manager = request.app.state.db_manager
@@ -783,14 +790,21 @@ async def list_review_queue(
 
 
 @router.get("/reviews/stats", response_model=dict)
-async def get_review_stats_endpoint(request: Request) -> dict:
+async def get_review_stats_endpoint(
+    request: Request,
+    _role_check: dict = Depends(require_role("reviewer", "admin")),
+) -> dict:
     """返回审核工作台统计数据。"""
     db_manager = request.app.state.db_manager
     return await db_manager.get_review_workbench_stats()
 
 
 @router.get("/reviews/{ticket_id}", response_model=dict)
-async def get_review_detail(ticket_id: str, request: Request) -> dict:
+async def get_review_detail(
+    ticket_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("reviewer", "admin")),
+) -> dict:
     """返回工单的完整审核上下文。"""
     db_tool = request.app.state.db_tool
     db_manager = request.app.state.db_manager
@@ -853,6 +867,7 @@ async def submit_review_decision(
     ticket_id: str,
     body: ReviewDecisionRequest,
     request: Request,
+    _role_check: dict = Depends(require_role("reviewer", "admin")),
 ) -> dict:
     """提交人工审核决策，恢复工作流执行。"""
     from src.multi_agent_system.workflow.graph import (

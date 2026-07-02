@@ -72,6 +72,12 @@ export interface AuthState {
   logged_in: boolean
   username: string | null
   auth_enabled: boolean
+  role: string | null
+}
+
+export interface MyPermissions {
+  role: string
+  routes: string[]
 }
 
 export const api = {
@@ -91,6 +97,7 @@ export const api = {
 
   // 用户自助（U-03 / U-04）
   getMe: () => request<UserProfile>('/users/me'),
+  getMyPermissions: () => request<MyPermissions>('/users/me/permissions'),
   updateMe: (payload: UpdateMeRequest) =>
     request<UserProfile>('/users/me', {
       method: 'PATCH',

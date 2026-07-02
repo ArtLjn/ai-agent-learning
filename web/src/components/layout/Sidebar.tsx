@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -12,21 +12,51 @@ import {
   UserCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { api } from '@/lib/api'
+import { api, type AuthState } from '@/lib/api'
 
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/tickets', icon: Ticket, label: '工单管理' },
-  { to: '/reviews', icon: ShieldCheck, label: '审核工作台' },
-  { to: '/monitor', icon: Activity, label: 'Agent 监控' },
-  { to: '/knowledge', icon: BookOpen, label: '知识库' },
-  { to: '/profile', icon: UserCircle, label: '个人资料' },
-  { to: '/settings', icon: Settings, label: '系统设置' },
+type Role = 'user' | 'reviewer' | 'admin' | 'developer'
+
+interface NavItem {
+  to: string
+  icon: typeof LayoutDashboard
+  label: string
+  roles: Role[]
+}
+
+const navItems: NavItem[] = [
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['user', 'reviewer', 'admin', 'developer'] },
+  { to: '/tickets', icon: Ticket, label: '工单管理', roles: ['user', 'reviewer', 'admin', 'developer'] },
+  { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'reviewer', 'admin', 'developer'] },
+  { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['reviewer', 'admin'] },
+  { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
+  { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
+  { to: '/settings', icon: Settings, label: '系统设置', roles: ['admin'] },
 ]
 
 export function Sidebar() {
   const navigate = useNavigate()
   const [loggingOut, setLoggingOut] = useState(false)
+  const [auth, setAuth] = useState<AuthState | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    api
+      .getAuthState()
+      .then((s) => {
+        if (alive) setAuth(s)
+      })
+      .catch(() => {
+        // 静默失败：Sidebar 仍渲染基础菜单（演示模式视为 admin 兜底）
+        if (alive) setAuth(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  // 演示模式视为 admin，可见全部菜单
+  const role: Role = (auth?.role as Role) || (auth && !auth.auth_enabled ? 'admin' : 'user')
+  const visible = auth ? navItems.filter((item) => item.roles.includes(role)) : navItems
 
   async function handleLogout() {
     if (loggingOut) return
@@ -51,7 +81,7 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 space-y-0.5">
-        {navItems.map((item) => (
+        {visible.map((item) => (
           <NavLink
             key={item.to}
             to={item.to}
@@ -73,6 +103,14 @@ export function Sidebar() {
 
       {/* Bottom */}
       <div className="p-3 border-t border-border space-y-2">
+        {auth?.logged_in && (
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="truncate max-w-[8rem]">{auth.username}</span>
+            <span className="px-1.5 py-0.5 rounded text-[10px] bg-muted text-muted-foreground">
+              {role}
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
           <span>服务在线</span>

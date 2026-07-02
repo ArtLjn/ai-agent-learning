@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
+from starlette.middleware.sessions import SessionMiddleware
 
 from src.multi_agent_system.api.routes import (
     _broadcast_review_event,
@@ -45,6 +46,7 @@ def _build_app() -> FastAPI:
         await db_manager.close()
 
     app = FastAPI(lifespan=lifespan)
+    app.add_middleware(SessionMiddleware, secret_key="test-session-secret-32-chars-or-more")
     app.include_router(router, prefix="/api")
     return app
 
@@ -52,6 +54,7 @@ def _build_app() -> FastAPI:
 def _build_auth_required_app() -> FastAPI:
     """构建带全局登录依赖的应用，复现生产路由注册方式。"""
     app = FastAPI()
+    app.add_middleware(SessionMiddleware, secret_key="test-session-secret-32-chars-or-more")
     app.include_router(router, prefix="/api", dependencies=[Depends(require_login)])
     return app
 
@@ -66,6 +69,12 @@ def client(app) -> TestClient:
     with TestClient(app) as c:
         app.state._portal = c.portal
         yield c
+
+
+@pytest.fixture(autouse=True)
+def _disable_auth_for_ws_tests(monkeypatch):
+    """reviews 路由带 require_role，演示模式下视为 admin 放行。"""
+    monkeypatch.setenv("AUTH_ENABLED", "false")
 
 
 @pytest.fixture(autouse=True)
