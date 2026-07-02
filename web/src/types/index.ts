@@ -18,6 +18,44 @@ export type TicketStatus = 'received' | 'classifying' | 'processing' | 'reviewin
 export type TicketCategory = 'technical' | 'billing' | 'complaint' | 'inquiry'
 export type TicketPriority = 'P0' | 'P1' | 'P2' | 'P3'
 
+// 用户（U-02 / U-03 / U-04）
+export interface UserProfile {
+  user_id: string | null
+  username: string | null
+  nickname: string | null
+  contact: string | null
+  vip_level: number
+  preferred_categories: TicketCategory[]
+  created_at: string | null
+  status: string
+}
+
+export interface RegisterRequest {
+  username: string
+  password: string
+  nickname?: string
+}
+
+export interface RegisterResponse {
+  user: UserProfile
+}
+
+export interface UpdateMeRequest {
+  nickname?: string
+  contact?: string
+  preferred_categories?: TicketCategory[]
+}
+
+export interface ChangePasswordRequest {
+  old_password: string
+  new_password: string
+}
+
+export interface ChangePasswordResponse {
+  success: boolean
+  redirect: string
+}
+
 export interface TicketCreateRequest {
   content: string
   user_id?: string

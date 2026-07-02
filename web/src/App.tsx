@@ -9,12 +9,15 @@ import { Knowledge } from '@/pages/Knowledge'
 import { Settings } from '@/pages/Settings'
 import { ReviewWorkbench } from '@/pages/ReviewWorkbench'
 import { Login } from '@/pages/Login'
+import { Register } from '@/pages/Register'
+import { Profile } from '@/pages/Profile'
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
         <Route
           element={
             <RequireAuth>
@@ -29,6 +32,7 @@ function App() {
           <Route path="monitor" element={<AgentMonitor />} />
           <Route path="knowledge" element={<Knowledge />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="profile" element={<Profile />} />
         </Route>
       </Routes>
     </BrowserRouter>

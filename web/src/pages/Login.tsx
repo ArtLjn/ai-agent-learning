@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { Loader2, Lock, ShieldCheck, User } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -152,6 +152,16 @@ export function Login() {
             <p className="mt-6 text-center text-xs text-muted-foreground/60">
               © 2026 AgentDesk · LangGraph + Multi-Agent
             </p>
+
+            <div className="mt-4 pt-4 border-t border-border text-center">
+              <span className="text-xs text-muted-foreground">没有账户？</span>{' '}
+              <Link
+                to="/register"
+                className="text-xs font-medium text-primary hover:underline"
+              >
+                立即注册
+              </Link>
+            </div>
           </CardContent>
         </Card>
       </main>
