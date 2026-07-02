@@ -471,7 +471,7 @@ class DatabaseManager:
             await session.commit()
 
     async def update_user_role(self, user_id: str, role: str) -> dict[str, Any] | None:
-        """更新用户角色（admin/reviewer/user/developer）。供 A-04 管理后台调用。"""
+        """更新用户角色（user/admin/developer）。供 A-04 管理后台调用。"""
         async with self._session() as session:
             obj = await session.get(UserORM, user_id)
             if obj is None:

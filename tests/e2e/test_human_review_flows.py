@@ -18,11 +18,13 @@
 
 import asyncio
 import json
+import os
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI
+from starlette.middleware.sessions import SessionMiddleware
 from fastapi.testclient import TestClient
 
 from src.multi_agent_system.api.routes import router
@@ -93,6 +95,11 @@ def e2e_app() -> FastAPI:
     settings.ai_suggestion_high_confidence_threshold = 0.7
     settings.review_threshold = 0.7
     app.state.settings = settings
+
+    # require_role 依赖 request.session；装 SessionMiddleware 并启用演示模式
+    # 让 reviews 路由的权限装饰器视为 admin 放行
+    app.add_middleware(SessionMiddleware, secret_key="e2e-test-secret")
+    os.environ["AUTH_ENABLED"] = "false"
     return app
 
 

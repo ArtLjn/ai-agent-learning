@@ -227,13 +227,13 @@ def test_get_me_permissions_after_role_change(
 ) -> None:
     """admin 在 DB 改 role 后，老 session 调 /permissions 应反映最新角色。"""
     user = _register_and_keep_session(client)
-    # DB 改 role=reviewer
+    # DB 改 role=admin（v2.0 设计 3 角色：user/admin/developer）
     client.portal.call(
-        app.state.db_manager.update_user_role, user["user_id"], "reviewer"
+        app.state.db_manager.update_user_role, user["user_id"], "admin"
     )
     # session 里的 role 仍是 user，但 /permissions 端点会兜底查 DB
     resp = client.get("/api/users/me/permissions")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["role"] == "reviewer"
+    assert body["role"] == "admin"
     assert "/reviews" in body["routes"]

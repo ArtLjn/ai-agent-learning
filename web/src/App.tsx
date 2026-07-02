@@ -36,7 +36,7 @@ function App() {
           <Route
             path="reviews"
             element={
-              <RequireRole roles={['reviewer', 'admin']}>
+              <RequireRole roles={['admin']}>
                 <ReviewWorkbench />
               </RequireRole>
             }

@@ -738,7 +738,7 @@ async def list_review_queue(
     priority: str | None = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    _role_check: dict = Depends(require_role("reviewer", "admin")),
+    _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
     """查询待人工审核队列，按优先级 + 等待时长排序。"""
     db_manager = request.app.state.db_manager
@@ -792,7 +792,7 @@ async def list_review_queue(
 @router.get("/reviews/stats", response_model=dict)
 async def get_review_stats_endpoint(
     request: Request,
-    _role_check: dict = Depends(require_role("reviewer", "admin")),
+    _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
     """返回审核工作台统计数据。"""
     db_manager = request.app.state.db_manager
@@ -803,7 +803,7 @@ async def get_review_stats_endpoint(
 async def get_review_detail(
     ticket_id: str,
     request: Request,
-    _role_check: dict = Depends(require_role("reviewer", "admin")),
+    _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
     """返回工单的完整审核上下文。"""
     db_tool = request.app.state.db_tool
@@ -867,7 +867,7 @@ async def submit_review_decision(
     ticket_id: str,
     body: ReviewDecisionRequest,
     request: Request,
-    _role_check: dict = Depends(require_role("reviewer", "admin")),
+    _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
     """提交人工审核决策，恢复工作流执行。"""
     from src.multi_agent_system.workflow.graph import (

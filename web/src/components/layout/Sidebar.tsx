@@ -14,7 +14,7 @@ import {
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
 
-type Role = 'user' | 'reviewer' | 'admin' | 'developer'
+type Role = 'user' | 'admin' | 'developer'
 
 interface NavItem {
   to: string
@@ -24,10 +24,10 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['user', 'reviewer', 'admin', 'developer'] },
-  { to: '/tickets', icon: Ticket, label: '工单管理', roles: ['user', 'reviewer', 'admin', 'developer'] },
-  { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'reviewer', 'admin', 'developer'] },
-  { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['reviewer', 'admin'] },
+  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['user', 'admin', 'developer'] },
+  { to: '/tickets', icon: Ticket, label: '工单管理', roles: ['user', 'admin', 'developer'] },
+  { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'admin', 'developer'] },
+  { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['admin'] },
   { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
   { to: '/settings', icon: Settings, label: '系统设置', roles: ['admin'] },

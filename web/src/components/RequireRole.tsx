@@ -8,7 +8,7 @@ import { api, type AuthState } from '@/lib/api'
  *
  * 用法：
  *   <Route path="reviews" element={
- *     <RequireRole roles={['reviewer','admin']}><ReviewWorkbench /></RequireRole>
+ *     <RequireRole roles={['admin']}><ReviewWorkbench /></RequireRole>
  *   } />
  *
  * auth_enabled=false（演示模式）后端把 role 兜底为 admin，所有路由放行。

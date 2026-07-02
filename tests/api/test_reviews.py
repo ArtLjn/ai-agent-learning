@@ -53,7 +53,7 @@ def app():
 
 @pytest.fixture(autouse=True)
 def _disable_auth_for_reviews_tests(monkeypatch):
-    """reviews/* 路由现在带 require_role("reviewer","admin")，测试 fixture
+    """reviews/* 路由现在带 require_role("admin")，测试 fixture
     无登录态会被 401/403 拦下。演示模式下 require_role 视为 admin 放行，
     让既有测试逻辑保持不变。"""
     monkeypatch.setenv("AUTH_ENABLED", "false")

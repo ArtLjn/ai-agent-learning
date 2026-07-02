@@ -68,7 +68,7 @@ class UserORM(Base):
     - nickname / contact / preferred_categories：可由用户在 Profile 页面维护
     - status：active/banned，配合 A-04 用户管理使用
     - created_at：注册时间
-    - role：user / reviewer / admin / developer，决定 Sidebar 可见路由与 API 权限
+    - role：user / admin / developer（v2.0 设计 3 角色，详见 assets/system-module-architecture-v2-ascii.md）
     旧字段（name / vip_level / preferred_category / avg_satisfaction / total_tickets /
     last_contact）保留，作为扩展上下文使用。
     """

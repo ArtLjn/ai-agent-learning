@@ -162,24 +162,19 @@ def test_require_role_requires_at_least_one_role() -> None:
 def test_demo_mode_treats_user_as_admin(
     app: FastAPI, client: TestClient, monkeypatch
 ) -> None:
-    """auth_enabled=false 时所有路由对匿名放行（视作 admin）。"""
-    from src.multi_agent_system.core import permissions as perms_mod
-    from src.multi_agent_system.core import auth as auth_mod
+    """auth_enabled=false 时所有路由对匿名放行（视作 admin）。
 
-    real_settings = perms_mod.Settings
-
-    class _Disabled(real_settings):
-        auth_enabled: bool = False
-
-    monkeypatch.setattr(perms_mod, "Settings", _Disabled)
-    monkeypatch.setattr(auth_mod, "Settings", _Disabled)
+    用 setenv 让 require_login / require_role 实例化的 Settings 都读到
+    False；monkeypatch 类属性对 pydantic-settings 实例化无效。
+    """
+    monkeypatch.setenv("AUTH_ENABLED", "false")
 
     resp = client.get("/api/settings")
     assert resp.status_code == 200
 
 
 # ============================================================
-# reviewer / admin 视角放行
+# developer / admin 视角放行（v2.0 设计 3 角色：user/admin/developer）
 # ============================================================
 
 
@@ -189,8 +184,8 @@ def _build_minimal_role_app() -> FastAPI:
     app.add_middleware(SessionMiddleware, secret_key=_SESSION_SECRET)
     r = APIRouter(prefix="/test")
 
-    @r.get("/reviewer-only", dependencies=[Depends(require_role("reviewer", "admin"))])
-    async def reviewer_only():
+    @r.get("/dev-or-admin", dependencies=[Depends(require_role("developer", "admin"))])
+    async def dev_or_admin():
         return {"ok": True}
 
     @r.get("/admin-only", dependencies=[Depends(require_role("admin"))])
@@ -201,20 +196,20 @@ def _build_minimal_role_app() -> FastAPI:
     return app
 
 
-def test_reviewer_session_can_access_reviewer_route(monkeypatch) -> None:
-    """session 里 role=reviewer → /reviewer-only 返回 200。"""
+def test_developer_session_can_access_dev_route(monkeypatch) -> None:
+    """session 里 role=developer → /dev-or-admin 返回 200。"""
     from src.multi_agent_system.core import auth as auth_mod
 
     def fake_get_current_user(request):
-        return {"username": "x", "role": "reviewer"}
+        return {"username": "x", "role": "developer"}
 
     monkeypatch.setattr(auth_mod, "get_current_user", fake_get_current_user)
 
     app = _build_minimal_role_app()
     with TestClient(app) as tc:
-        resp = tc.get("/api/test/reviewer-only")
+        resp = tc.get("/api/test/dev-or-admin")
         assert resp.status_code == 200
-        # reviewer 不能进 admin-only
+        # developer 不能进 admin-only
         resp = tc.get("/api/test/admin-only")
         assert resp.status_code == 403
 
@@ -232,8 +227,8 @@ def test_admin_session_can_access_admin_route(monkeypatch) -> None:
     with TestClient(app) as tc:
         resp = tc.get("/api/test/admin-only")
         assert resp.status_code == 200
-        resp = tc.get("/api/test/reviewer-only")
-        assert resp.status_code == 200  # admin 也在 reviewer-or-admin 集合
+        resp = tc.get("/api/test/dev-or-admin")
+        assert resp.status_code == 200  # admin 也在 dev-or-admin 集合
 
 
 def test_unauthenticated_returns_401(monkeypatch) -> None:

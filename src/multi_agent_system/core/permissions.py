@@ -16,9 +16,10 @@ __all__ = ["require_role", "ROLE_PERMISSIONS", "get_role_routes"]
 
 
 # 角色到可见前端路由的映射（前端 Sidebar 与 RequireRole 共用）
+# v2.0 设计 3 角色：user / admin / developer（详见 docs/design-spec/
+# assets/system-module-architecture-v2-ascii.md）
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "user": ["/", "/tickets", "/tickets/:id", "/profile"],
-    "reviewer": ["/", "/tickets", "/tickets/:id", "/profile", "/reviews"],
     "admin": [
         "/", "/tickets", "/tickets/:id", "/profile",
         "/reviews", "/knowledge", "/monitor", "/settings",
@@ -55,7 +56,7 @@ def require_role(*allowed_roles: str):
     """FastAPI 依赖工厂：要求当前 session.user.role 在 allowed_roles 中。
 
     用法：
-        router = APIRouter(dependencies=[Depends(require_role("reviewer", "admin"))])
+        router = APIRouter(dependencies=[Depends(require_role("admin"))])
         或
         @router.get("/...", dependencies=[Depends(require_role("admin"))])
 
