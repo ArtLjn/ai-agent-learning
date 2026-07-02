@@ -9,6 +9,7 @@ import {
   Bot,
   LogOut,
   ShieldCheck,
+  UserCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -19,6 +20,7 @@ const navItems = [
   { to: '/reviews', icon: ShieldCheck, label: '审核工作台' },
   { to: '/monitor', icon: Activity, label: 'Agent 监控' },
   { to: '/knowledge', icon: BookOpen, label: '知识库' },
+  { to: '/profile', icon: UserCircle, label: '个人资料' },
   { to: '/settings', icon: Settings, label: '系统设置' },
 ]
 

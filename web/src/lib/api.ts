@@ -1,7 +1,11 @@
 import type {
   Analytics,
   ApiRecord,
+  ChangePasswordRequest,
+  ChangePasswordResponse,
   KnowledgeListResponse,
+  RegisterRequest,
+  RegisterResponse,
   SystemSettings,
   Ticket,
   TicketCategory,
@@ -14,6 +18,8 @@ import type {
   TraceDetail,
   TraceListResponse,
   TraceStatsResponse,
+  UpdateMeRequest,
+  UserProfile,
 } from '@/types'
 
 const BASE_URL = '/api'
@@ -21,12 +27,14 @@ const BASE_URL = '/api'
 export class ApiError extends Error {
   status: number
   detail?: string
+  body?: unknown
 
-  constructor(status: number, statusText: string, detail?: string) {
+  constructor(status: number, statusText: string, detail?: string, body?: unknown) {
     super(detail || `API Error: ${status} ${statusText}`)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
+    this.body = body
   }
 }
 
@@ -47,13 +55,15 @@ export async function request<T>(path: string, opts?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     let detail: string | undefined
+    let body: unknown = undefined
     try {
-      const body = await res.json()
-      detail = typeof body?.detail === 'string' ? body.detail : undefined
+      body = await res.json()
+      const candidate = (body as Record<string, unknown> | null)?.detail
+      detail = typeof candidate === 'string' ? candidate : undefined
     } catch {
       detail = undefined
     }
-    throw new ApiError(res.status, res.statusText, detail)
+    throw new ApiError(res.status, res.statusText, detail, body)
   }
   return res.json()
 }
@@ -71,8 +81,26 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ username, password }),
     }),
+  register: (payload: RegisterRequest) =>
+    request<RegisterResponse>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
   logout: () => request<{ logged_out: boolean }>('/auth/logout', { method: 'POST' }),
   getAuthState: () => request<AuthState>('/auth/me'),
+
+  // 用户自助（U-03 / U-04）
+  getMe: () => request<UserProfile>('/users/me'),
+  updateMe: (payload: UpdateMeRequest) =>
+    request<UserProfile>('/users/me', {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    }),
+  changePassword: (payload: ChangePasswordRequest) =>
+    request<ChangePasswordResponse>('/users/me/password', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }),
 
   // 工单
   getTickets: (params?: TicketListParams) => {

@@ -19,6 +19,7 @@ from src.multi_agent_system.agents.processor import ReActProcessorAgent
 from src.multi_agent_system.agents.reviewer import ReviewerAgent
 from src.multi_agent_system.agents.ticket_intent import TicketIntentAgent
 from src.multi_agent_system.api.auth_routes import router as auth_router
+from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.config import Settings
 from src.multi_agent_system.core.auth import require_login
 from src.multi_agent_system.tools.analytics import AnalyticsTool
@@ -237,8 +238,11 @@ app.add_middleware(
     https_only=True,
 )
 
-# 鉴权路由（公开：login/logout/me）
+# 鉴权路由（公开：login/register/logout/me）
 app.include_router(auth_router, prefix="/api")
+
+# 用户自助路由（要求登录）
+app.include_router(user_router, prefix="/api", dependencies=[Depends(require_login)])
 
 # 业务路由（全部要求登录，auth_enabled=false 时自动放行）
 from src.multi_agent_system.api.routes import router  # noqa: E402
