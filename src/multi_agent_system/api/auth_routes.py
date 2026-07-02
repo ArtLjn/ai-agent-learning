@@ -1,16 +1,56 @@
-"""鉴权路由：登录 / 退出 / 查当前用户。"""
+"""鉴权路由：登录 / 注册 / 退出 / 查当前用户。"""
 
+import json
+import re
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request, status
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 
 from src.multi_agent_system.config import Settings
-from src.multi_agent_system.core.auth import get_current_user, verify_password
+from src.multi_agent_system.core.auth import (
+    get_current_user,
+    hash_password,
+    verify_password,
+)
+from src.multi_agent_system.core.logging import generate_trace_id
 
-__all__ = ["router", "LoginRequest"]
+__all__ = ["router", "LoginRequest", "RegisterRequest", "public_user"]
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+_USERNAME_RE = re.compile(r"^[a-zA-Z0-9_]{3,32}$")
+
+
+def _parse_preferred_categories(raw: Any) -> list[str]:
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def public_user(user: dict[str, Any]) -> dict[str, Any]:
+    """脱敏并标准化用户对象。"""
+    return {
+        "user_id": user.get("user_id"),
+        "username": user.get("username"),
+        "nickname": user.get("nickname") or user.get("name"),
+        "contact": user.get("contact"),
+        "vip_level": user.get("vip_level", 0),
+        "preferred_categories": _parse_preferred_categories(
+            user.get("preferred_categories")
+        ),
+        "created_at": user.get("created_at"),
+        "status": user.get("status", "active"),
+    }
 
 
 class LoginRequest(BaseModel):
@@ -23,6 +63,13 @@ class LoginResponse(BaseModel):
     """登录响应。"""
     username: str
     logged_in: bool = True
+
+
+class RegisterRequest(BaseModel):
+    """注册请求体。"""
+    username: str = Field(..., min_length=3, max_length=32)
+    password: str = Field(..., min_length=8)
+    nickname: str | None = Field(default=None, max_length=32)
 
 
 @router.post("/login", response_model=LoginResponse)
@@ -40,6 +87,57 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
         )
     request.session["user"] = {"username": body.username}
     return LoginResponse(username=body.username)
+
+
+@router.post("/register")
+async def register(body: RegisterRequest, request: Request) -> JSONResponse:
+    """用户自助注册。成功后立即创建 session（自动登录）。
+
+    校验：用户名 3-32 字符 [a-zA-Z0-9_]、密码 >=8。
+    错误码：
+      - 422 invalid_username / password_too_weak（Pydantic 长度已挡，这里补字符集）
+      - 409 username_taken
+    """
+    if not _USERNAME_RE.match(body.username):
+        return JSONResponse(
+            status_code=422,
+            content={"error": "invalid_username"},
+        )
+
+    db_manager = request.app.state.db_manager
+    existing = await db_manager.get_user_by_username(body.username)
+    if existing is not None:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "username_taken"},
+        )
+
+    user_id = f"U-{generate_trace_id()}"
+    password_hash = hash_password(body.password)
+    try:
+        user = await db_manager.create_registered_user({
+            "user_id": user_id,
+            "username": body.username,
+            "password_hash": password_hash,
+            "nickname": body.nickname,
+        })
+    except IntegrityError:
+        return JSONResponse(
+            status_code=409,
+            content={"error": "username_taken"},
+        )
+
+    request.session["user"] = {
+        "user_id": user["user_id"],
+        "username": user["username"],
+        "nickname": user.get("nickname"),
+    }
+
+    safe_user = public_user(user)
+    return JSONResponse(
+        status_code=201,
+        content={"user": safe_user},
+    )
 
 
 @router.post("/logout")

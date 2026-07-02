@@ -326,6 +326,13 @@ class DatabaseManager:
             obj = await session.get(UserORM, user_id)
             return self._orm_to_dict(obj) if obj else None
 
+    async def get_user_by_username(self, username: str) -> dict[str, Any] | None:
+        """按用户名查用户，用于注册唯一性校验和登录。"""
+        async with self._session() as session:
+            stmt = select(UserORM).where(UserORM.username == username)
+            obj = await session.scalar(stmt)
+            return self._orm_to_dict(obj) if obj else None
+
     async def save_user(self, user_data: dict[str, Any]) -> None:
         async with self._session() as session:
             user_id = user_data.get("user_id")
@@ -343,6 +350,68 @@ class DatabaseManager:
             else:
                 for k, v in data.items():
                     setattr(existing, k, v)
+            await session.commit()
+
+    async def create_registered_user(self, user_data: dict[str, Any]) -> dict[str, Any]:
+        """创建自助注册用户。username 唯一约束冲突时抛 IntegrityError。"""
+        from sqlalchemy.exc import IntegrityError
+
+        preferred = user_data.get("preferred_categories") or []
+        preferred_json = (
+            json.dumps(preferred, ensure_ascii=False) if preferred else None
+        )
+        async with self._session() as session:
+            obj = UserORM(
+                user_id=user_data["user_id"],
+                username=user_data["username"],
+                password_hash=user_data["password_hash"],
+                nickname=user_data.get("nickname") or user_data["username"],
+                contact=user_data.get("contact"),
+                preferred_categories=preferred_json,
+                vip_level=0,
+                status="active",
+                created_at=datetime.utcnow(),
+            )
+            session.add(obj)
+            try:
+                await session.commit()
+            except IntegrityError as exc:
+                await session.rollback()
+                raise
+
+        created = await self.get_user(user_data["user_id"])
+        assert created is not None, "刚创建的用户必须能查到"
+        return created
+
+    async def update_user_profile(
+        self, user_id: str, updates: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """更新 nickname/contact/preferred_categories；其他字段忽略。"""
+        allowed = {"nickname", "contact", "preferred_categories"}
+        valid = {k: v for k, v in updates.items() if k in allowed}
+        if "preferred_categories" in valid:
+            value = valid["preferred_categories"]
+            if not isinstance(value, list):
+                raise ValueError("preferred_categories 必须是数组")
+            valid["preferred_categories"] = (
+                json.dumps(value, ensure_ascii=False) if value else None
+            )
+        async with self._session() as session:
+            obj = await session.get(UserORM, user_id)
+            if obj is None:
+                return None
+            for k, v in valid.items():
+                setattr(obj, k, v)
+            await session.commit()
+        return await self.get_user(user_id)
+
+    async def update_user_password(self, user_id: str, password_hash: str) -> None:
+        """写入新的密码哈希。"""
+        async with self._session() as session:
+            obj = await session.get(UserORM, user_id)
+            if obj is None:
+                return
+            obj.password_hash = password_hash
             await session.commit()
 
     async def get_user_tickets(

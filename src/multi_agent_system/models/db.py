@@ -11,6 +11,8 @@ from sqlalchemy import DateTime, Double, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
+from datetime import datetime
+
 from src.multi_agent_system.models.base import Base
 
 __all__ = [
@@ -59,7 +61,16 @@ class TicketORM(Base):
 
 
 class UserORM(Base):
-    """用户信息表。"""
+    """用户信息表。
+
+    v2.0 扩展字段（U-02/U-03/U-04）：
+    - username / password_hash：自助注册产生的凭证（唯一用户名 + bcrypt 哈希）
+    - nickname / contact / preferred_categories：可由用户在 Profile 页面维护
+    - status：active/banned，配合 A-04 用户管理使用
+    - created_at：注册时间
+    旧字段（name / vip_level / preferred_category / avg_satisfaction / total_tickets /
+    last_contact）保留，作为扩展上下文使用。
+    """
 
     __tablename__ = "users"
 
@@ -70,6 +81,14 @@ class UserORM(Base):
     avg_satisfaction: Mapped[float | None] = mapped_column(Double)
     total_tickets: Mapped[int] = mapped_column(Integer, default=0)
     last_contact: Mapped[str | None] = mapped_column(DateTime)
+    # v2.0 新增字段
+    username: Mapped[str | None] = mapped_column(String(32), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
+    nickname: Mapped[str | None] = mapped_column(String(32))
+    contact: Mapped[str | None] = mapped_column(String(128))
+    preferred_categories: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(16), default="active")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, server_default=func.now())
 
 
 class CheckpointORM(Base):
