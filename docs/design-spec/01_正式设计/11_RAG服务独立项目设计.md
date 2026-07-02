@@ -120,8 +120,10 @@ rag-service/
 ├── Dockerfile
 ├── docker-compose.yml
 ├── .env.example
+├── .gitignore
 ├── app/
 │   ├── main.py                      # FastAPI 入口
+│   ├── __init__.py
 │   ├── api/                         # HTTP 路由层
 │   │   ├── __init__.py
 │   │   ├── parse.py                 # POST /parse
@@ -132,53 +134,78 @@ rag-service/
 │   │   └── health.py                # GET /health
 │   ├── parser/                      # 文档解析模块
 │   │   ├── __init__.py
-│   │   ├── base.py                  # 解析器抽象基类
+│   │   ├── base.py                  # 解析器抽象基类 + 工厂
 │   │   ├── pdf_parser.py            # PDF 复杂解析（NSQA 迁移）
 │   │   ├── markdown_parser.py
 │   │   ├── text_parser.py
-│   │   ├── layout/                  # 版面分析
-│   │   ├── table/                   # 表格识别
-│   │   ├── chunker/                 # 智能分块
-│   │   └── cleaner.py               # 元数据清洗
+│   │   ├── cleaner.py               # 元数据清洗
+│   │   ├── layout/
+│   │   │   ├── __init__.py
+│   │   │   └── analyzer.py          # 版面分析（启发式）
+│   │   ├── table/
+│   │   │   ├── __init__.py
+│   │   │   └── extractor.py         # 表格识别（PyMuPDF find_tables）
+│   │   └── chunker/
+│   │       ├── __init__.py          # 策略选择器
+│   │       ├── structure_aware.py   # 按标题层级
+│   │       ├── semantic.py          # 句子相似度边界
+│   │       └── fixed.py             # 固定窗口 + 重叠
 │   ├── retrieval/                   # 检索重排模块
 │   │   ├── __init__.py
-│   │   ├── embedder.py              # Embedding 客户端
+│   │   ├── embedder.py              # BAAI/bge-large-zh-v1.5（懒加载）
 │   │   ├── dense_searcher.py        # 向量检索
-│   │   ├── sparse_searcher.py       # BM25 检索
+│   │   ├── sparse_searcher.py       # BM25 检索（Qdrant sparse + jieba）
 │   │   ├── hybrid_searcher.py       # RRF 融合
-│   │   ├── reranker.py              # Cross-Encoder 重排
+│   │   ├── reranker.py              # BAAI/bge-reranker-v2-m3（懒加载）
 │   │   └── hyde.py                  # HyDE 查询改写
 │   ├── storage/                     # 存储与知识管理
 │   │   ├── __init__.py
 │   │   ├── qdrant_client.py         # Qdrant 连接封装
-│   │   ├── collection_manager.py
+│   │   ├── collection_manager.py    # collection + dense/sparse 向量配置
 │   │   ├── metadata_store.py        # SQLite 元数据
-│   │   └── version_manager.py
-│   ├── evaluation/                  # 评估模块 P2
+│   │   └── version_manager.py       # 版本记录
+│   ├── services/                    # 编排层（薄）
 │   │   ├── __init__.py
-│   │   ├── recall.py
-│   │   ├── faithfulness.py
-│   │   └── context_precision.py
+│   │   ├── parse_service.py         # parse → chunk → clean
+│   │   ├── ingest_service.py        # + embed → Qdrant/SQLite
+│   │   ├── retrieve_service.py      # 三 mode + 降级
+│   │   ├── rerank_service.py        # + 模型不可用降级
+│   │   ├── collection_service.py    # collection CRUD
+│   │   └── health_service.py        # 三组件状态聚合
 │   ├── models/                      # Pydantic 数据模型
 │   │   ├── __init__.py
-│   │   ├── chunk.py
-│   │   ├── query.py
-│   │   └── document.py
+│   │   ├── chunk.py                 # Chunk + ChunkMetadata
+│   │   ├── query.py                 # RetrieveRequest/Result/RerankRequest/Result
+│   │   └── document.py              # DocumentRecord + DocumentVersion
 │   └── core/                        # 公共能力
 │       ├── __init__.py
-│       ├── config.py                # 集中配置
-│       ├── logging.py
-│       ├── exceptions.py
-│       └── metrics.py
+│       ├── config.py                # Settings（pydantic-settings）
+│       ├── logging.py               # loguru 统一格式
+│       ├── exceptions.py            # RagServiceError 基类 + 子类
+│       ├── metrics.py               # 进程内 Counter/Histogram
+│       └── response.py              # ApiResponse 统一响应模型
 ├── tests/
-│   ├── api/
-│   ├── parser/
-│   ├── retrieval/
-│   └── storage/
-└── docs/
+│   ├── conftest.py
+│   ├── api/                         # 5 个 API 端到端测试
+│   ├── parser/                      # chunker / pdf / layout / table
+│   ├── retrieval/                   # dense / sparse / hybrid / reranker / hyde
+│   ├── storage/                     # qdrant_client / metadata_store
+│   ├── services/                    # parse / ingest / collection service
+│   └── integration/                 # 端到端 / 降级 / 契约
+├── docs/
+│   ├── api.md                       # API 契约详细文档
+│   ├── deployment.md                # 部署与联调
+│   └── architecture.md              # 架构与扩展点
+└── fixtures/                        # 测试 fixture 文件（PDF/MD/TXT）
 ```
 
-目录约定与主系统保持一致：分层架构 `models → storage → retrieval/parser → api`；配置统一放 `core/config.py`；测试镜像源码结构。
+> 2026-07-02 回写：与初版设计的差异
+> - 新增 `app/services/` 编排层，让 API 层只做协议转换，业务逻辑下沉
+> - 新增 `app/core/response.py` 统一 ApiResponse 模型
+> - 新增 `tests/integration/`、`tests/services/` 测试目录
+> - 评估模块 `app/evaluation/` 暂未创建（P2 范围，未启动）
+
+目录约定与主系统保持一致：分层架构 `models → storage → retrieval/parser → services → api`；配置统一放 `core/config.py`；测试镜像源码结构。
 
 ## 5. 核心 API 契约
 
