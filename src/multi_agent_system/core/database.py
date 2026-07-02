@@ -137,7 +137,7 @@ class DatabaseManager:
         self._session_factory: async_sessionmaker | None = None
 
     async def initialize(self) -> None:
-        """创建引擎并建表（幂等）。"""
+        """创建引擎并建表（幂等）+ 增量迁移。"""
         self._engine = create_async_engine(
             self._url,
             pool_recycle=3600,
@@ -147,7 +147,58 @@ class DatabaseManager:
         )
         async with self._engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await self._apply_schema_migrations(conn)
         logger.info(f"[Database] Initialized: {self._url.split('@')[-1]}")
+
+    async def _apply_schema_migrations(self, conn: AsyncConnection) -> None:
+        """增量列迁移：ORM 新增列在已有表上不会自动 ALTER，这里幂等补上。
+
+        v2.0 给 users 表加了 7 列（username/password_hash/nickname/contact/
+        preferred_categories/status/created_at），生产 MySQL 里旧表只有
+        v1.x 的 7 列，启动时检查 information_schema 缺哪列才 ALTER，
+        新建库（如测试 sqlite）由 create_all 直接建好，这里跳过。
+        """
+        migrations = [
+            ("users", "username", "VARCHAR(32)"),
+            ("users", "password_hash", "VARCHAR(255)"),
+            ("users", "nickname", "VARCHAR(32)"),
+            ("users", "contact", "VARCHAR(128)"),
+            ("users", "preferred_categories", "TEXT"),
+            ("users", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
+            ("users", "created_at", "DATETIME"),
+        ]
+
+        # 取当前库的现有列，避免逐列查询
+        url = make_url(self._url)
+        # sqlite 无 information_schema，测试库由 create_all 建好所有列，跳过迁移
+        if url.drivername.startswith("sqlite"):
+            return
+        db_name = url.database or None
+        if not db_name:
+            return
+
+        existing_rows = await conn.execute(text(
+            "SELECT table_name, column_name FROM information_schema.columns "
+            "WHERE table_schema = :db"
+        ), {"db": db_name})
+        existing = {(r[0], r[1]) for r in existing_rows.fetchall()}
+
+        applied = 0
+        for table, col, dtype in migrations:
+            if (table, col) in existing:
+                continue
+            # 给 username 加唯一索引（创建列时一并加，避免漏 INDEX）
+            extra = ""
+            if col == "username":
+                extra = ", ADD UNIQUE INDEX idx_users_username (username)"
+            await conn.execute(text(
+                f"ALTER TABLE `{table}` ADD COLUMN `{col}` {dtype}{extra}"
+            ))
+            applied += 1
+            logger.info(f"[Database] Migrated: {table}.{col} ({dtype})")
+
+        if applied:
+            logger.info(f"[Database] Applied {applied} column migration(s)")
 
     async def truncate_all(self) -> None:
         """清空所有业务表数据（保留表结构）。供测试 fixture 隔离使用。"""
