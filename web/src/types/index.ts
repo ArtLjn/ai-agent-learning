@@ -429,3 +429,89 @@ export interface SystemSettings {
   cache_ttl: number
   checkpoint_ttl: number
 }
+
+// A-06 系统配置（只读脱敏，6 类）
+export interface SystemConfigLLM {
+  base_url: string
+  model: string
+  temperature: number
+  api_key_configured: boolean
+  fallback_model: string
+  model_routes: Record<string, string>
+}
+
+export interface SystemConfigEmbedding {
+  base_url: string
+  model: string
+  dim: number
+  api_key_configured: boolean
+}
+
+export interface SystemConfigQdrant {
+  url: string
+  collection: string
+  top_k: number
+  score_threshold: number
+  batch_size: number
+  api_key_configured: boolean
+}
+
+export interface SystemConfigRagService {
+  status: string
+  base_url: string | null
+  api_key_configured: boolean
+}
+
+export interface SystemConfigDatabase {
+  driver: string | null
+  host: string | null
+  port: number | null
+  database: string | null
+  username_configured: boolean
+  password_configured: boolean
+  parse_error?: boolean
+}
+
+export interface SystemConfigAuth {
+  auth_enabled: boolean
+  session_cookie: string
+  session_max_age_days: number
+  password_hash_configured: boolean
+  session_secret_configured: boolean
+}
+
+export interface SystemConfig {
+  llm: SystemConfigLLM
+  embedding: SystemConfigEmbedding
+  qdrant: SystemConfigQdrant
+  rag_service: SystemConfigRagService
+  database: SystemConfigDatabase
+  auth: SystemConfigAuth
+  _meta: {
+    readonly: boolean
+    version: string
+    note: string
+  }
+}
+
+// A-07 操作日志审计
+export interface AuditLogEntry {
+  id: number
+  admin_id: string | null
+  admin_username: string | null
+  action: string
+  action_label: string
+  target_type: string | null
+  target_id: string | null
+  detail: Record<string, unknown> | null
+  ip: string | null
+  created_at: string | null
+}
+
+export interface AuditLogListResponse {
+  items: AuditLogEntry[]
+  total: number
+  page: number
+  page_size: number
+  actions: Record<string, string>
+}

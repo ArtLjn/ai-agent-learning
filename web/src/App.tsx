@@ -13,6 +13,7 @@ import { Login } from '@/pages/Login'
 import { Register } from '@/pages/Register'
 import { Profile } from '@/pages/Profile'
 import { UserManagement } from '@/pages/admin/UserManagement'
+import { AuditLog } from '@/pages/admin/AuditLog'
 
 function App() {
   return (
@@ -71,6 +72,14 @@ function App() {
             element={
               <RequireRole roles={['admin']}>
                 <UserManagement />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="admin/audit-logs"
+            element={
+              <RequireRole roles={['admin']}>
+                <AuditLog />
               </RequireRole>
             }
           />
