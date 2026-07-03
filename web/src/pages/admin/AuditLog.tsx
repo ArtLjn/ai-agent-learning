@@ -123,7 +123,7 @@ export function AuditLog() {
           <div className="flex flex-wrap items-end gap-3">
             <div className="space-y-1">
               <label className="text-xs text-muted-foreground">操作类型</label>
-              <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v); setPage(1) }}>
+              <Select value={actionFilter} onValueChange={(v) => { setActionFilter(v ?? 'all'); setPage(1) }}>
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="全部" />
                 </SelectTrigger>
