@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import (
 
 from src.multi_agent_system.models.db import (
     Base,
+    AuditLogORM,
     CheckpointORM,
     HumanReviewORM,
     PatternORM,
@@ -563,6 +564,87 @@ class DatabaseManager:
             )
             result = await session.execute(stmt)
             return [self._orm_to_dict(o) for o in result.scalars().all()]
+
+    # ============================================================
+    # AuditLog CRUD（A-07 操作日志审计）
+    # ============================================================
+
+    async def insert_audit_log(
+        self,
+        *,
+        admin_id: str | None,
+        admin_username: str | None,
+        action: str,
+        target_type: str | None,
+        target_id: str | None,
+        detail: dict[str, Any] | None,
+        ip: str | None,
+    ) -> dict[str, Any] | None:
+        """写入一条操作日志。中间件层已保证 detail JSON < 4KB。"""
+        detail_json: str | None = None
+        if detail is not None:
+            detail_json = json.dumps(detail, ensure_ascii=False)
+        async with self._session() as session:
+            entry = AuditLogORM(
+                admin_id=admin_id,
+                admin_username=admin_username,
+                action=action,
+                target_type=target_type,
+                target_id=target_id,
+                detail=detail_json,
+                ip=ip,
+            )
+            session.add(entry)
+            await session.commit()
+            await session.refresh(entry)
+            return self._orm_to_dict(entry)
+
+    async def list_audit_logs_paginated(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 50,
+        admin_id: str | None = None,
+        action: str | None = None,
+        target_type: str | None = None,
+        start_date: str | None = None,
+        end_date: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """分页 + 多筛选查 audit_logs。返回 (items, total)。
+
+        - action / target_type 精确匹配
+        - admin_id 精确匹配（None 表示演示模式兜底 admin）
+        - start_date / end_date 为 ISO 字符串，闭区间匹配 created_at
+        """
+        async with self._session() as session:
+            stmt = select(AuditLogORM)
+            count_stmt = select(func.count(AuditLogORM.id))
+
+            if admin_id is not None:
+                stmt = stmt.where(AuditLogORM.admin_id == admin_id)
+                count_stmt = count_stmt.where(AuditLogORM.admin_id == admin_id)
+            if action:
+                stmt = stmt.where(AuditLogORM.action == action)
+                count_stmt = count_stmt.where(AuditLogORM.action == action)
+            if target_type:
+                stmt = stmt.where(AuditLogORM.target_type == target_type)
+                count_stmt = count_stmt.where(AuditLogORM.target_type == target_type)
+            if start_date:
+                stmt = stmt.where(AuditLogORM.created_at >= start_date)
+                count_stmt = count_stmt.where(AuditLogORM.created_at >= start_date)
+            if end_date:
+                stmt = stmt.where(AuditLogORM.created_at <= end_date)
+                count_stmt = count_stmt.where(AuditLogORM.created_at <= end_date)
+
+            total = await session.scalar(count_stmt) or 0
+            stmt = (
+                stmt.order_by(AuditLogORM.created_at.desc())
+                .offset(max(0, (page - 1) * page_size))
+                .limit(page_size)
+            )
+            result = await session.execute(stmt)
+            items = [self._orm_to_dict(o) for o in result.scalars().all()]
+            return items, int(total)
 
     # ============================================================
     # Checkpoint CRUD

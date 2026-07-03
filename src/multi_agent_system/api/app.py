@@ -19,6 +19,8 @@ from src.multi_agent_system.agents.processor import ReActProcessorAgent
 from src.multi_agent_system.agents.reviewer import ReviewerAgent
 from src.multi_agent_system.agents.ticket_intent import TicketIntentAgent
 from src.multi_agent_system.api.auth_routes import router as auth_router
+from src.multi_agent_system.api.admin_audit import router as admin_audit_router
+from src.multi_agent_system.api.admin_config import router as admin_config_router
 from src.multi_agent_system.api.admin_users import router as admin_users_router
 from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.config import Settings
@@ -228,6 +230,18 @@ class _CORSAllowAll:
 
 app.add_middleware(_CORSAllowAll)
 
+# A-07 操作日志审计中间件：在 Session 之后执行（更内层）才能读到 scope["session"]。
+# 用 lambda 延迟取 app.state.db_manager（lifespan 启动后才挂载）。
+from src.multi_agent_system.core.audit_middleware import AuditMiddleware  # noqa: E402
+
+
+def _get_db_manager_for_audit():
+    """延迟取 db_manager；测试环境无 app.state 时返回 None 安全跳过。"""
+    return getattr(app.state, "db_manager", None)
+
+
+app.add_middleware(AuditMiddleware, db_manager_getter=_get_db_manager_for_audit)
+
 # Session 中间件（cookie-based，签名用 auth_session_secret）
 _settings_for_mw = Settings()
 app.add_middleware(
@@ -247,6 +261,8 @@ app.include_router(user_router, prefix="/api", dependencies=[Depends(require_log
 
 # 管理员路由（要求 admin 角色，auth_enabled=false 演示模式视为 admin 放行）
 app.include_router(admin_users_router, prefix="/api")
+app.include_router(admin_config_router, prefix="/api")
+app.include_router(admin_audit_router, prefix="/api")
 
 # 业务路由（全部要求登录，auth_enabled=false 时自动放行）
 from src.multi_agent_system.api.routes import router  # noqa: E402

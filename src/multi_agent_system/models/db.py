@@ -13,6 +13,7 @@ from sqlalchemy.sql import func
 
 from datetime import datetime
 
+from src.multi_agent_system.models.audit_log import AuditLogORM
 from src.multi_agent_system.models.base import Base
 
 __all__ = [
@@ -25,6 +26,7 @@ __all__ = [
     "SpanORM",
     "HumanReviewORM",
     "TicketMessageORM",
+    "AuditLogORM",
 ]
 
 
