@@ -9,6 +9,7 @@ import json
 import time
 import uuid
 from contextvars import ContextVar
+from datetime import date
 from typing import Any
 
 from loguru import logger
@@ -228,6 +229,42 @@ class TraceManager:
                 (delta, trace_id),
             )
             await conn.commit()
+
+    async def accumulate_token_daily_stats(
+        self,
+        *,
+        trace_id: str,
+        model: str,
+        call_type: str,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> None:
+        """按 (user_id, date, model, call_type) 累加 token_daily_stats。
+
+        从 trace 关联的 ticket 反查 user_id（无 ticket 或失败时 user_id=None）。
+        用于 Token 成本控制台数据源（详见 12 号设计文档第 4.2 节）。
+        """
+        if prompt_tokens <= 0 and completion_tokens <= 0:
+            return
+        try:
+            ticket_id = await self._get_ticket_id(trace_id)
+            user_id: str | None = None
+            if ticket_id:
+                ticket = await self._db.get_ticket(ticket_id)
+                if ticket:
+                    user_id = ticket.get("user_id")
+            await self._db.accumulate_token_daily_stats(
+                user_id=user_id,
+                date_value=date.today(),
+                model=model,
+                call_type=call_type,
+                ticket_id=ticket_id or None,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+            )
+        except Exception as e:  # noqa: BLE001
+            # token 统计失败不应影响主流程
+            logger.warning(f"[Trace] accumulate_token_daily_stats failed: {e}")
 
     async def _increment_tool_count(self, trace_id: str) -> None:
         """递增 trace 的 total_tool_calls。"""

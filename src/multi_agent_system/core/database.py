@@ -10,7 +10,7 @@
 import json
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, AsyncGenerator
 
 from loguru import logger
@@ -33,6 +33,7 @@ from src.multi_agent_system.models.db import (
     SpanORM,
     TicketMessageORM,
     TicketORM,
+    TokenDailyStatsORM,
     TraceORM,
     UserORM,
 )
@@ -1015,6 +1016,92 @@ class DatabaseManager:
             )
             result = await session.execute(stmt)
             return [self._orm_to_dict(o) for o in result.scalars().all()]
+
+    # ============================================================
+    # Token Daily Stats（v2.0：Token 成本控制台数据源）
+    # ============================================================
+
+    async def accumulate_token_daily_stats(
+        self,
+        *,
+        user_id: str | None,
+        date_value: date,
+        model: str,
+        call_type: str,
+        ticket_id: str | None,
+        prompt_tokens: int,
+        completion_tokens: int,
+    ) -> None:
+        """按 (user_id, date, model, call_type) 累加 token_daily_stats。
+
+        - user_id 为 None 时表示系统级调用（如 CoordinatorAgent）
+        - 使用 SELECT-then-INSERT/UPDATE 模式以跨方言兼容 NULL 累加
+          （MySQL/SQLite 中 NULL 在 UNIQUE 索引里被视为 distinct，
+          无法直接用 ON DUPLICATE KEY UPDATE / ON CONFLICT 累加）
+        - task_type 已在调用方映射为 call_type（详见 12 号文档第 7 节枚举）
+        """
+        total_tokens = int(prompt_tokens) + int(completion_tokens)
+        async with self._session() as session:
+            stmt = select(TokenDailyStatsORM).where(
+                TokenDailyStatsORM.date == date_value,
+                TokenDailyStatsORM.model == model,
+                TokenDailyStatsORM.call_type == call_type,
+            )
+            if user_id is None:
+                stmt = stmt.where(TokenDailyStatsORM.user_id.is_(None))
+            else:
+                stmt = stmt.where(TokenDailyStatsORM.user_id == user_id)
+            result = await session.execute(stmt)
+            existing = result.scalars().first()
+
+            if existing is None:
+                session.add(TokenDailyStatsORM(
+                    user_id=user_id,
+                    date=date_value,
+                    model=model,
+                    call_type=call_type,
+                    ticket_id=ticket_id,
+                    prompt_tokens=int(prompt_tokens),
+                    completion_tokens=int(completion_tokens),
+                    total_tokens=total_tokens,
+                    request_count=1,
+                ))
+            else:
+                existing.prompt_tokens += int(prompt_tokens)
+                existing.completion_tokens += int(completion_tokens)
+                existing.total_tokens += total_tokens
+                existing.request_count += 1
+                if ticket_id and not existing.ticket_id:
+                    existing.ticket_id = ticket_id
+            await session.commit()
+
+    async def list_token_daily_stats(
+        self,
+        *,
+        user_id: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+        model: str | None = None,
+        call_type: str | None = None,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        """按多维过滤查询 token_daily_stats，返回行列表（供 Token 控制台读取）。"""
+        async with self._session() as session:
+            stmt = select(TokenDailyStatsORM)
+            if user_id is not None:
+                stmt = stmt.where(TokenDailyStatsORM.user_id == user_id)
+            if date_from is not None:
+                stmt = stmt.where(TokenDailyStatsORM.date >= date_from)
+            if date_to is not None:
+                stmt = stmt.where(TokenDailyStatsORM.date <= date_to)
+            if model is not None:
+                stmt = stmt.where(TokenDailyStatsORM.model == model)
+            if call_type is not None:
+                stmt = stmt.where(TokenDailyStatsORM.call_type == call_type)
+            stmt = stmt.order_by(TokenDailyStatsORM.date.desc()).limit(limit)
+            result = await session.execute(stmt)
+            return [self._orm_to_dict(o) for o in result.scalars().all()]
+
 
     # ============================================================
     # Ticket Message CRUD
