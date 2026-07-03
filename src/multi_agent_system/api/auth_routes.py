@@ -77,22 +77,51 @@ class RegisterRequest(BaseModel):
 async def login(body: LoginRequest, request: Request) -> LoginResponse:
     """用户名 + 密码登录，成功后写入 session。
 
-    Settings.auth_username 兜底管理员视为 admin 角色；DB-backed 用户走 register
-    流程时 role=user，管理员可在后台改。
+    登录路径：
+    1. Settings.auth_username 兜底管理员（视为 admin 角色）
+    2. DB-backed 注册用户（按 username 查 → verify_password → 读 DB role）
+       admin 在后台改 role 后，被改用户重新 login 即拿到新 role。
+
+    错误：用户名或密码错误返回 401；账户被封禁（status=banned）返回 403。
     """
     settings = Settings()
-    ok = (
+
+    # 路径 1：兜底管理员
+    if (
         body.username == settings.auth_username
         and verify_password(body.password, settings.auth_password_hash)
-    )
-    if not ok:
+    ):
+        request.session["user"] = {
+            "username": body.username,
+            "role": "admin",
+        }
+        return LoginResponse(username=body.username)
+
+    # 路径 2：DB-backed 用户
+    db_manager = request.app.state.db_manager
+    user = await db_manager.get_user_by_username(body.username)
+    print(f"DEBUG login path2: user={user is None=}, hash={'password_hash' in (user or {})}")
+    if user is None or not user.get("password_hash"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
         )
+    if not verify_password(body.password, user["password_hash"]):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+        )
+    if user.get("status") == "banned":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账户已被封禁",
+        )
+
     request.session["user"] = {
-        "username": body.username,
-        "role": "admin",
+        "user_id": user["user_id"],
+        "username": user["username"],
+        "nickname": user.get("nickname"),
+        "role": user.get("role", "user"),
     }
     return LoginResponse(username=body.username)
 

@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Any, AsyncGenerator
 
 from loguru import logger
-from sqlalchemy import case, func, select, text
+from sqlalchemy import case, func, or_, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import (
@@ -490,6 +490,66 @@ class DatabaseManager:
             )
             result = await session.execute(stmt)
             return [self._orm_to_dict(o) for o in result.scalars().all()]
+
+    async def list_users_paginated(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        *,
+        status_filter: str | None = None,
+        role_filter: str | None = None,
+        keyword: str | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """分页 + 筛选查用户列表。返回 (items, total)。
+
+        - status_filter: active / banned
+        - role_filter: user / admin / developer
+        - keyword: 模糊匹配 username 或 nickname（不区分大小写）
+        """
+        async with self._session() as session:
+            stmt = select(UserORM)
+            count_stmt = select(func.count(UserORM.user_id))
+
+            if status_filter:
+                stmt = stmt.where(UserORM.status == status_filter)
+                count_stmt = count_stmt.where(UserORM.status == status_filter)
+            if role_filter:
+                stmt = stmt.where(UserORM.role == role_filter)
+                count_stmt = count_stmt.where(UserORM.role == role_filter)
+            if keyword:
+                pattern = f"%{keyword}%"
+                stmt = stmt.where(
+                    or_(
+                        UserORM.username.ilike(pattern),
+                        UserORM.nickname.ilike(pattern),
+                    )
+                )
+                count_stmt = count_stmt.where(
+                    or_(
+                        UserORM.username.ilike(pattern),
+                        UserORM.nickname.ilike(pattern),
+                    )
+                )
+
+            total = await session.scalar(count_stmt) or 0
+            stmt = (
+                stmt.order_by(UserORM.created_at.desc())
+                .offset(max(0, (page - 1) * page_size))
+                .limit(page_size)
+            )
+            result = await session.execute(stmt)
+            items = [self._orm_to_dict(o) for o in result.scalars().all()]
+            return items, int(total)
+
+    async def update_user_status(self, user_id: str, status: str) -> dict[str, Any] | None:
+        """更新用户状态（active/banned）。供 A-04 管理后台调用。"""
+        async with self._session() as session:
+            obj = await session.get(UserORM, user_id)
+            if obj is None:
+                return None
+            obj.status = status
+            await session.commit()
+        return await self.get_user(user_id)
 
     async def get_user_tickets(
         self, user_id: str, limit: int = 5

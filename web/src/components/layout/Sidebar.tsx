@@ -10,6 +10,7 @@ import {
   LogOut,
   ShieldCheck,
   UserCircle,
+  Users2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
@@ -29,6 +30,7 @@ const navItems: NavItem[] = [
   { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'admin', 'developer'] },
   { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['admin'] },
   { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
+  { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
   { to: '/settings', icon: Settings, label: '系统设置', roles: ['admin'] },
 ]
