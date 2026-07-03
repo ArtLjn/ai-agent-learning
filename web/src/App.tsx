@@ -12,6 +12,7 @@ import { ReviewWorkbench } from '@/pages/ReviewWorkbench'
 import { Login } from '@/pages/Login'
 import { Register } from '@/pages/Register'
 import { Profile } from '@/pages/Profile'
+import { UserManagement } from '@/pages/admin/UserManagement'
 
 function App() {
   return (
@@ -62,6 +63,14 @@ function App() {
             element={
               <RequireRole roles={['admin']}>
                 <Settings />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="admin/users"
+            element={
+              <RequireRole roles={['admin']}>
+                <UserManagement />
               </RequireRole>
             }
           />

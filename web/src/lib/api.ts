@@ -81,6 +81,9 @@ export interface MyPermissions {
 }
 
 export const api = {
+  // 通用底层方法（供特殊场景直接调用 path，如 admin/users）
+  request,
+
   // 鉴权
   login: (username: string, password: string) =>
     request<{ username: string; logged_in: boolean }>('/auth/login', {
