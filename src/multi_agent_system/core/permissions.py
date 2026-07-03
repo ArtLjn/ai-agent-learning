@@ -23,6 +23,7 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
     "admin": [
         "/", "/tickets", "/tickets/:id", "/profile",
         "/reviews", "/knowledge", "/monitor", "/settings",
+        "/admin/users", "/admin/audit-logs",
     ],
     "developer": [
         "/", "/tickets", "/tickets/:id", "/profile",

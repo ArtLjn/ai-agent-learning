@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   UserCircle,
   Users2,
+  ScrollText,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
@@ -31,8 +32,9 @@ const navItems: NavItem[] = [
   { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['admin'] },
   { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
   { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
+  { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
-  { to: '/settings', icon: Settings, label: '系统设置', roles: ['admin'] },
+  { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin'] },
 ]
 
 export function Sidebar() {

@@ -1,11 +1,13 @@
 import type {
   Analytics,
   ApiRecord,
+  AuditLogListResponse,
   ChangePasswordRequest,
   ChangePasswordResponse,
   KnowledgeListResponse,
   RegisterRequest,
   RegisterResponse,
+  SystemConfig,
   SystemSettings,
   Ticket,
   TicketCategory,
@@ -158,6 +160,15 @@ export const api = {
 
   // Settings
   getSettings: () => request<SystemSettings>('/settings'),
+
+  // A-06 系统配置（只读脱敏，6 类）
+  getSystemConfig: () => request<SystemConfig>('/admin/config'),
+
+  // A-07 操作日志审计
+  getAuditLogs: (params?: Record<string, string>) => {
+    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+    return request<AuditLogListResponse>(`/admin/audit-logs${qs}`)
+  },
 
   // Health（不鉴权，供前端探活）
   getHealth: () => request<ApiRecord>('/health'),
