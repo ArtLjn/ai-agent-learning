@@ -12,6 +12,8 @@ import {
   UserCircle,
   Users2,
   ScrollText,
+  GitBranch,
+  DollarSign,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
@@ -34,6 +36,8 @@ const navItems: NavItem[] = [
   { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
   { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
+  { to: '/dev/traces', icon: GitBranch, label: 'Trace 决策树', roles: ['developer', 'admin'] },
+  { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer', 'admin'] },
   { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin'] },
 ]
 

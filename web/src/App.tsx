@@ -14,6 +14,8 @@ import { Register } from '@/pages/Register'
 import { Profile } from '@/pages/Profile'
 import { UserManagement } from '@/pages/admin/UserManagement'
 import { AuditLog } from '@/pages/admin/AuditLog'
+import SpanTreeView from '@/pages/dev/SpanTreeView'
+import TokenDashboard from '@/pages/dev/TokenDashboard'
 
 function App() {
   return (
@@ -80,6 +82,24 @@ function App() {
             element={
               <RequireRole roles={['admin']}>
                 <AuditLog />
+              </RequireRole>
+            }
+          />
+
+          {/* D-01 / D-04 开发人员工作台 */}
+          <Route
+            path="dev/traces"
+            element={
+              <RequireRole roles={['developer', 'admin']}>
+                <SpanTreeView />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="dev/tokens"
+            element={
+              <RequireRole roles={['developer', 'admin']}>
+                <TokenDashboard />
               </RequireRole>
             }
           />
