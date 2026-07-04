@@ -290,10 +290,15 @@ PDF 解析是 rag-service 的论文核心创新点。本节方案先迁移 NSQA 
 
 ### 6.1 解析流水线
 
+rag-service v0.2 引入双轨架构（借鉴 airQA 项目）：
+
 ```mermaid
 flowchart LR
-    A[原始 PDF] --> B[OCR 与版面分析]
-    B --> C{版面元素分类}
+    A[原始 PDF] --> B{是否配置<br/>MINERU_API_TOKEN?}
+    B -->|是| M[MinerU 云端 API<br/>vlm 视觉语言模型]
+    B -->|否 或 失败降级| P[PyMuPDF + 启发式<br/>离线 fallback]
+    M --> C{版面元素分类}
+    P --> C
     C -->|标题| D1[标题树构建]
     C -->|段落| D2[阅读顺序还原]
     C -->|表格| D3[行列单元格结构化]
@@ -308,6 +313,10 @@ flowchart LR
     F --> G[元数据清洗]
     G --> H[Chunk 列表]
 ```
+
+**MinerU 路径**（推荐，论文核心）：调用 https://mineru.net/api/v4，返回 content_list_v2 JSON（含 50+ BlockType 与 bbox/text_level），由 rag-service 的 `app/parser/mineru/` 模块转 Chunk。MinerU 的 vlm 模型在复杂版面（双栏、跨页表格、LaTeX 公式）上效果显著优于启发式。
+
+**PyMuPDF 路径**（降级）：基于 PyMuPDF 内置 block 检测 + 自研启发式（字号/位置/编号推断），无网络依赖，毕设答辩现场若无外网可走此路径。
 
 ### 6.2 版面分析
 
@@ -334,6 +343,8 @@ flowchart LR
 - **阅读顺序还原**：按列 → 段落 → 行号排序，避免双栏文档错乱
 - **公式还原**：检测公式区域后调用 LaTeX OCR，输出文本形式（如 `$E=mc^2$`），便于向量化
 - **图片处理**：图片本身不入向量库，但 `caption` 与图周围的引用文本作为独立 chunk
+- **公式文本化**（v0.2，借鉴 airQA multiview_classifier）：LaTeX 命令转 Unicode 符号（`\alpha`→α、`x^2`→x²），同时保留原始 LaTeX，让 BM25/sparse 检索能命中公式内容
+- **语义锚点**（v0.2，借鉴 airQA data_cleaning `_establish_semantic_anchors`）：为公式 / 表格 / 图按空间距离绑定"最近标题"到 `heading_path`，避免按时间顺序累积错绑上一节标题；同页加权 0.5、跨页 1.5，向上方优先
 
 ### 6.5 智能分块策略
 

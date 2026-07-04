@@ -1,5 +1,7 @@
 import type {
   AgentStatsResponse,
+  AdminTraceDetail,
+  AdminTraceListResponse,
   Analytics,
   ApiRecord,
   AuditLogListResponse,
@@ -12,6 +14,7 @@ import type {
   PromptVersionListResponse,
   RegisterRequest,
   RegisterResponse,
+  Span,
   SystemConfig,
   SystemSettings,
   Ticket,
@@ -21,12 +24,16 @@ import type {
   TicketListParams,
   TicketMessage,
   TicketMessageCreateRequest,
+  TokenDailyResponse,
+  TokenHourlyResponse,
+  TokenSummaryResponse,
   TraceDecisionsResponse,
   TraceDetail,
   TraceListResponse,
   TraceStatsResponse,
   UpdateMeRequest,
   UserProfile,
+  UserQuotaResponse,
 } from '@/types'
 
 const BASE_URL = '/api'
@@ -208,4 +215,51 @@ export const api = {
 
   // Health（不鉴权，供前端探活）
   getHealth: () => request<ApiRecord>('/health'),
+
+  // ============================================================
+  // D-01 / D-04 开发人员工作台（admin trace + token stats）
+  // ============================================================
+
+  // D-01 Trace 决策树
+  getAdminTraces: (params?: Record<string, string | number>) => {
+    const qs = params
+      ? '?' +
+        new URLSearchParams(
+          Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])),
+        ).toString()
+      : ''
+    return request<AdminTraceListResponse>(`/admin/traces${qs}`)
+  },
+  getAdminTrace: (ticketId: string) =>
+    request<AdminTraceDetail>(`/admin/traces/${encodeURIComponent(ticketId)}`),
+  getAdminSpanDetail: (ticketId: string, spanId: string) =>
+    request<Span>(`/admin/traces/${encodeURIComponent(ticketId)}/spans/${encodeURIComponent(spanId)}`),
+
+  // D-04 Token 成本控制台
+  getTokenSummary: (params?: { days?: number; user_id?: string }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(params ?? {}).map(([k, v]) => [k, String(v ?? '')]),
+      ),
+    ).toString()
+    return request<TokenSummaryResponse>(`/admin/stats/tokens${qs ? '?' + qs : ''}`)
+  },
+  getTokenDaily: (params?: { date?: string; user_id?: string }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(params ?? {}).map(([k, v]) => [k, String(v ?? '')]),
+      ),
+    ).toString()
+    return request<TokenDailyResponse>(`/admin/stats/tokens/daily${qs ? '?' + qs : ''}`)
+  },
+  getTokenHourly: (params?: { date?: string; user_id?: string; model?: string }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(params ?? {}).map(([k, v]) => [k, String(v ?? '')]),
+      ),
+    ).toString()
+    return request<TokenHourlyResponse>(`/admin/stats/tokens/hourly${qs ? '?' + qs : ''}`)
+  },
+  getUserQuota: (userId: string) =>
+    request<UserQuotaResponse>(`/admin/stats/quota/${encodeURIComponent(userId)}`),
 }

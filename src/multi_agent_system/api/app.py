@@ -23,6 +23,7 @@ from src.multi_agent_system.api.admin_audit import router as admin_audit_router
 from src.multi_agent_system.api.admin_config import router as admin_config_router
 from src.multi_agent_system.api.admin_prompts import router as admin_prompts_router
 from src.multi_agent_system.api.admin_stats import router as admin_stats_router
+from src.multi_agent_system.api.admin_trace import router as admin_trace_router
 from src.multi_agent_system.api.admin_users import router as admin_users_router
 from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.config import Settings
@@ -292,6 +293,7 @@ app.include_router(admin_config_router, prefix="/api")
 app.include_router(admin_audit_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
 app.include_router(admin_stats_router, prefix="/api")
+app.include_router(admin_trace_router, prefix="/api")
 
 # 业务路由（全部要求登录，auth_enabled=false 时自动放行）
 from src.multi_agent_system.api.routes import router  # noqa: E402

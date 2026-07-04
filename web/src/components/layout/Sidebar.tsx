@@ -14,6 +14,8 @@ import {
   ScrollText,
   Sparkles,
   BarChart3,
+  GitBranch,
+  DollarSign,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
@@ -38,6 +40,8 @@ const navItems: NavItem[] = [
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
   { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['admin'] },
   { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['admin', 'developer'] },
+  { to: '/dev/traces', icon: GitBranch, label: 'Trace 决策树', roles: ['developer', 'admin'] },
+  { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer', 'admin'] },
   { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin'] },
 ]
 

@@ -16,6 +16,8 @@ import { UserManagement } from '@/pages/admin/UserManagement'
 import { AuditLog } from '@/pages/admin/AuditLog'
 import { PromptVersions } from '@/pages/dev/PromptVersions'
 import { AgentCallStats } from '@/pages/dev/AgentCallStats'
+import SpanTreeView from '@/pages/dev/SpanTreeView'
+import TokenDashboard from '@/pages/dev/TokenDashboard'
 
 function App() {
   return (
@@ -86,7 +88,7 @@ function App() {
             }
           />
 
-          {/* D-02 / D-05 开发者工作台 */}
+          {/* D-01 / D-02 / D-04 / D-05 开发人员工作台 */}
           <Route
             path="dev/prompts"
             element={
@@ -100,6 +102,22 @@ function App() {
             element={
               <RequireRole roles={['admin', 'developer']}>
                 <AgentCallStats />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="dev/traces"
+            element={
+              <RequireRole roles={['developer', 'admin']}>
+                <SpanTreeView />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="dev/tokens"
+            element={
+              <RequireRole roles={['developer', 'admin']}>
+                <TokenDashboard />
               </RequireRole>
             }
           />

@@ -537,6 +537,39 @@ export interface PromptVersionListResponse {
   page_size: number
 }
 
+// ============================================================
+// D-01 / D-04 开发人员工作台（admin trace + token stats）
+// ============================================================
+
+// D-01 admin trace：完整 trace 树（与 TraceDetail 字段对齐 + decisions 抽取）
+export interface AdminTraceDetail extends TraceDetail {
+  decisions: AdminSpanDecision[]
+  decision_count: number
+}
+
+export interface AdminSpanDecision {
+  span_id: string
+  span_name: string | null
+  span_type: string | null
+  decision_type: string | null
+  trigger: Record<string, unknown> | null
+  options_count: number
+  options: Array<{ value: string; score: number; reason?: string }>
+  selection_value: string | null
+  confidence: number | null
+  reason: string | null
+  execution: Record<string, unknown> | null
+  start_time: number | null
+  duration: number | null
+}
+
+export interface AdminTraceListResponse {
+  items: Trace[]
+  total: number
+  page: number
+  page_size: number
+}
+
 export interface PromptDiffResponse {
   agent_name: PromptAgentName
   from_version: number
@@ -565,4 +598,70 @@ export interface AgentStatsResponse {
   days: number
   since: string
   agents: AgentStatEntry[]
+}
+
+// D-04 token stats
+export interface TokenSummaryBucket {
+  model: string
+  call_type: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
+export interface TokenSummaryResponse {
+  days: number
+  total_tokens: number
+  total_requests: number
+  by_model: Record<string, TokenSummaryBucket>
+}
+
+export interface TokenDailyItem {
+  user_id: string | null
+  model: string
+  call_type: string
+  ticket_id: string | null
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  request_count: number
+  estimated_cost_cny: number
+}
+
+export interface TokenDailyResponse {
+  date: string
+  items: TokenDailyItem[]
+}
+
+export interface TokenHourlyItem {
+  date: string
+  hour: string | null
+  user_id: string | null
+  model: string
+  call_type: string
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  request_count: number
+}
+
+export interface TokenHourlyResponse {
+  date: string
+  items: TokenHourlyItem[]
+  hours: string[]
+  total_tokens: number
+  total_requests: number
+}
+
+export interface UserQuotaResponse {
+  user_id: string
+  monthly_limit: number
+  weekly_limit: number
+  monthly_usage: number
+  weekly_usage: number
+  monthly_remaining: number
+  weekly_remaining: number
+  period_start: { month: string; week: string }
+  period_end: { month: string; week: string }
 }
