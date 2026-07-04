@@ -79,6 +79,15 @@ class ClassifierAgent:
         self._base_url = base_url
         self._task_type = task_type
         self._client: CachedLLMClient | None = None
+        self._prompt_override: str | None = None
+
+    def set_prompt_override(self, template: str | None) -> None:
+        """注入 DB 中的 active prompt 模板；传 None 还原代码默认。"""
+        self._prompt_override = template
+
+    def _effective_system_prompt(self) -> str:
+        """当前生效的 system prompt（DB 覆盖 > 代码默认）。"""
+        return self._prompt_override or _CLASSIFIER_SYSTEM_PROMPT
 
     @property
     def client(self) -> CachedLLMClient:
@@ -128,12 +137,13 @@ class ClassifierAgent:
             NonRetryableError: 认证失败或 JSON 解析失败
         """
         logger.info(f"[Classifier] 调用 LLM 模型: {self._model}, 内容长度: {len(content)}")
-        logger.debug(f"[Classifier] 请求提示词:\n{_CLASSIFIER_SYSTEM_PROMPT}\n用户内容: {content}")
+        system_prompt = self._effective_system_prompt()
+        logger.debug(f"[Classifier] 请求提示词:\n{system_prompt}\n用户内容: {content}")
 
         try:
             response = await self.client.chat_completions_create(
                 messages=[
-                    {"role": "system", "content": _CLASSIFIER_SYSTEM_PROMPT},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": f"请分类以下工单：\n{content}"},
                 ],
                 temperature=0.1,

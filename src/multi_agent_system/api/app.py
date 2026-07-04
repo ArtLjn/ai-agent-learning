@@ -21,6 +21,8 @@ from src.multi_agent_system.agents.ticket_intent import TicketIntentAgent
 from src.multi_agent_system.api.auth_routes import router as auth_router
 from src.multi_agent_system.api.admin_audit import router as admin_audit_router
 from src.multi_agent_system.api.admin_config import router as admin_config_router
+from src.multi_agent_system.api.admin_prompts import router as admin_prompts_router
+from src.multi_agent_system.api.admin_stats import router as admin_stats_router
 from src.multi_agent_system.api.admin_users import router as admin_users_router
 from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.config import Settings
@@ -133,6 +135,20 @@ async def lifespan(app: FastAPI):
     app.state.reviewer = reviewer
     app.state.coordinator = coordinator
     app.state.workflow = workflow
+
+    # D-02：加载 prompt_versions 表中 active 模板覆盖代码默认
+    from src.multi_agent_system.core.prompt_loader import load_active_prompts
+
+    await load_active_prompts(
+        db_manager,
+        {
+            "intent": ticket_intent_agent,
+            "classify": classifier,
+            "process": processor,
+            "review": reviewer,
+            "coordinator": coordinator,
+        },
+    )
 
     # Restore unfinished checkpoints
     checkpoints = await db_manager.list_active_checkpoints()
@@ -274,6 +290,8 @@ app.include_router(user_router, prefix="/api", dependencies=[Depends(require_log
 app.include_router(admin_users_router, prefix="/api")
 app.include_router(admin_config_router, prefix="/api")
 app.include_router(admin_audit_router, prefix="/api")
+app.include_router(admin_prompts_router, prefix="/api")
+app.include_router(admin_stats_router, prefix="/api")
 
 # 业务路由（全部要求登录，auth_enabled=false 时自动放行）
 from src.multi_agent_system.api.routes import router  # noqa: E402

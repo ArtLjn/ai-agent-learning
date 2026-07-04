@@ -98,6 +98,15 @@ class TicketIntentAgent:
         self._base_url = base_url
         self._task_type = task_type
         self._client: CachedLLMClient | None = None
+        self._prompt_override: str | None = None
+
+    def set_prompt_override(self, template: str | None) -> None:
+        """注入 DB 中的 active prompt 模板；传 None 还原代码默认。"""
+        self._prompt_override = template
+
+    def _effective_system_prompt(self) -> str:
+        """当前生效的 system prompt（DB 覆盖 > 代码默认）。"""
+        return self._prompt_override or _INTENT_SYSTEM_PROMPT
 
     @property
     def client(self) -> CachedLLMClient:
@@ -131,7 +140,7 @@ class TicketIntentAgent:
         try:
             response = await self.client.chat_completions_create(
                 messages=[
-                    {"role": "system", "content": _INTENT_SYSTEM_PROMPT},
+                    {"role": "system", "content": self._effective_system_prompt()},
                     {"role": "user", "content": f"请理解并结构化以下工单描述：\n{content}"},
                 ],
                 temperature=0.1,

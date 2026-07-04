@@ -30,6 +30,7 @@ from src.multi_agent_system.models.db import (
     CheckpointORM,
     HumanReviewORM,
     PatternORM,
+    PromptVersionORM,
     SpanORM,
     TicketMessageORM,
     TicketORM,
@@ -1102,6 +1103,147 @@ class DatabaseManager:
             result = await session.execute(stmt)
             return [self._orm_to_dict(o) for o in result.scalars().all()]
 
+
+    # ============================================================
+    # Prompt Version CRUD（D-02 Prompt 版本管理）
+    # ============================================================
+
+    async def list_prompt_versions(
+        self,
+        agent_name: str,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        """分页查询某 Agent 的所有版本，按 version 倒序。"""
+        async with self._session() as session:
+            stmt = (
+                select(PromptVersionORM)
+                .where(PromptVersionORM.agent_name == agent_name)
+                .order_by(PromptVersionORM.version.desc())
+            )
+            total = int((await session.execute(
+                select(func.count())
+                .select_from(PromptVersionORM)
+                .where(PromptVersionORM.agent_name == agent_name)
+            )).scalar() or 0)
+            rows = (
+                await session.execute(
+                    stmt.limit(page_size).offset((page - 1) * page_size)
+                )
+            ).scalars().all()
+            return {
+                "items": [self._orm_to_dict(o) for o in rows],
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+            }
+
+    async def get_active_prompt(self, agent_name: str) -> dict[str, Any] | None:
+        """取某 Agent 当前激活的版本；无激活返回 None。"""
+        async with self._session() as session:
+            stmt = (
+                select(PromptVersionORM)
+                .where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.is_active.is_(True),
+                )
+                .limit(1)
+            )
+            obj = await session.scalar(stmt)
+            return self._orm_to_dict(obj) if obj else None
+
+    async def create_prompt_version(
+        self,
+        agent_name: str,
+        template: str,
+        note: str | None = None,
+        activate: bool = True,
+    ) -> dict[str, Any]:
+        """新建版本；version 自动取 max+1。
+
+        activate=True 时同时把旧 active 置为 false（应用层维护单 active 约束）。
+        """
+        async with self._session() as session:
+            max_ver = (
+                await session.execute(
+                    select(func.max(PromptVersionORM.version))
+                    .where(PromptVersionORM.agent_name == agent_name)
+                )
+            ).scalar()
+            new_ver = int(max_ver or 0) + 1
+
+            if activate:
+                await session.execute(
+                    PromptVersionORM.__table__.update()
+                    .where(
+                        PromptVersionORM.agent_name == agent_name,
+                        PromptVersionORM.is_active.is_(True),
+                    )
+                    .values(is_active=False)
+                )
+
+            obj = PromptVersionORM(
+                agent_name=agent_name,
+                version=new_ver,
+                template=template,
+                is_active=activate,
+                note=note,
+                activated_at=datetime.utcnow() if activate else None,
+            )
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return self._orm_to_dict(obj)
+
+    async def activate_prompt_version(
+        self,
+        agent_name: str,
+        version: int,
+    ) -> dict[str, Any] | None:
+        """激活指定版本：旧 active 全部置 false，目标版本置 true。
+
+        约束：
+        - 不删除历史版本
+        - 目标版本必须存在
+        """
+        async with self._session() as session:
+            target = await session.scalar(
+                select(PromptVersionORM).where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.version == version,
+                )
+            )
+            if target is None:
+                return None
+
+            await session.execute(
+                PromptVersionORM.__table__.update()
+                .where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.is_active.is_(True),
+                )
+                .values(is_active=False)
+            )
+            target.is_active = True
+            target.activated_at = datetime.utcnow()
+            await session.commit()
+            await session.refresh(target)
+            return self._orm_to_dict(target)
+
+    async def get_prompt_version(
+        self,
+        agent_name: str,
+        version: int,
+    ) -> dict[str, Any] | None:
+        """单条查询（用于 diff）。"""
+        async with self._session() as session:
+            obj = await session.scalar(
+                select(PromptVersionORM).where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.version == version,
+                )
+            )
+            return self._orm_to_dict(obj) if obj else None
 
     # ============================================================
     # Ticket Message CRUD
