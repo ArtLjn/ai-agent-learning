@@ -84,6 +84,7 @@ async def _build_rag_service_view(settings: Any) -> dict[str, Any]:
     """构造 rag_service 配置视图：base_url + 健康检查 + 客户端配置。
 
     整合 v2.0 RagClient 接入状态，供 A-06 系统配置查看页展示。
+    API Key 仅返回 configured 布尔，不暴露原值（设计决策 4：密钥全脱敏）。
     """
     base_url = settings.rag_service_url
     health = await _probe_rag_service_health(base_url)
@@ -96,8 +97,8 @@ async def _build_rag_service_view(settings: Any) -> dict[str, Any]:
         "components": health["components"],
         "warning": health["warning"],
         "error": health["error"],
-        # rag-service 无显式 api_key 概念（毕设范围默认无鉴权）
-        "api_key_configured": False,
+        # rag-service API Key 仅返回是否配置，不返回原值（密钥脱敏）
+        "api_key_configured": bool(settings.rag_service_api_key),
     }
 
 

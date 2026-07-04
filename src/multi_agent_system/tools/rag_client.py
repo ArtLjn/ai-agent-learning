@@ -40,6 +40,8 @@ class RagClient:
         timeout_seconds: 单次请求超时（默认 10s）
         retry: 网络错误重试次数（默认 1 次；5xx 不重试）
         fallback_enabled: 失败时是否走降级路径（True 时 raise RagServiceUnavailable）
+        api_key: rag-service API Key（默认从 Settings.rag_service_api_key 读）；
+            非空时所有请求带 X-API-Key header，空字符串时不带
     """
 
     def __init__(
@@ -48,6 +50,7 @@ class RagClient:
         timeout_seconds: int | None = None,
         retry: int | None = None,
         fallback_enabled: bool | None = None,
+        api_key: str | None = None,
     ) -> None:
         settings = Settings()
         self._base_url = (base_url or settings.rag_service_url).rstrip("/")
@@ -58,7 +61,16 @@ class RagClient:
             if fallback_enabled is not None
             else settings.rag_service_fallback_enabled
         )
+        self._api_key = (
+            api_key if api_key is not None else settings.rag_service_api_key
+        )
         self._client: httpx.AsyncClient | None = None
+
+    def _build_headers(self) -> dict[str, str]:
+        """构造请求头。api_key 非空时带 X-API-Key，否则返回空 dict。"""
+        if self._api_key:
+            return {"X-API-Key": self._api_key}
+        return {}
 
     @property
     def _http(self) -> httpx.AsyncClient:
@@ -172,7 +184,10 @@ class RagClient:
             rag-service /health 响应 dict。失败时抛 RagServiceUnavailable。
         """
         try:
-            response = await self._http.get(f"{self._base_url}/health")
+            response = await self._http.get(
+                f"{self._base_url}/health",
+                headers=self._build_headers(),
+            )
             response.raise_for_status()
             return response.json()
         except (httpx.HTTPError, ValueError) as e:
@@ -181,11 +196,12 @@ class RagClient:
     async def _post_with_retry(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
         """POST 带 retry。仅对网络错误重试；4xx/5xx 不重试。"""
         url = f"{self._base_url}{path}"
+        headers = self._build_headers()
         last_exc: Exception | None = None
         attempts = self._retry + 1
         for attempt in range(attempts):
             try:
-                response = await self._http.post(url, json=payload)
+                response = await self._http.post(url, json=payload, headers=headers)
                 response.raise_for_status()
                 body = response.json()
             except httpx.HTTPStatusError as e:

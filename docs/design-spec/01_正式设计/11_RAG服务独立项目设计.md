@@ -211,6 +211,17 @@ rag-service/
 
 所有接口走 JSON，文件上传接口走 multipart。返回体统一结构 `{ "code": "OK" | "FAILED", "message": str, "data": any }`。
 
+**认证**：除 `/health`（运维健康检查公开）外，所有接口要求 `X-API-Key` header。生产部署（rag.lllcnm.cn）由 API Key 中间件统一拦截，缺失或不匹配返回 `401 Unauthorized`。本地开发模式可关闭中间件。
+
+| 接口 | 认证 |
+| --- | --- |
+| `POST /parse` | X-API-Key 必填 |
+| `POST /ingest` | X-API-Key 必填 |
+| `POST /retrieve` | X-API-Key 必填 |
+| `POST /rerank` | X-API-Key 必填 |
+| `GET /collections/{name}/documents` | X-API-Key 必填 |
+| `GET /health` | 无需认证（运维探活公开） |
+
 ### 5.1 POST /parse
 
 仅解析与分块，不写入向量库。用于调用方预览分块效果，或调试分块策略。
@@ -499,6 +510,17 @@ volumes:
 ## 13. 与主系统的集成
 
 主系统侧通过 `src/multi_agent_system/tools/rag_client.py` 调用 rag-service。
+
+### 13.0 API Key 认证
+
+主系统调用 rag-service 时通过 `X-API-Key` header 携带 API Key：
+
+- **配置入口**：`Settings.rag_service_api_key`（`src/multi_agent_system/config.py`）
+- **加载优先级**：环境变量 `RAG_SERVICE_API_KEY` > `config.yaml` 中 `rag_service_api_key` > 默认空字符串
+- **行为**：RagClient 在 `__init__` 读取该值并缓存到 `self._api_key`，非空时所有 `/retrieve` `/rerank` `/health` 请求自动带 `X-API-Key` header；为空时不带（兼容本地开发无鉴权部署）
+- **脱敏**：A-06 系统配置查看（`/api/admin/config`）只返回 `api_key_configured: bool`，绝不返回原值
+- **禁止 hardcode**：生产 Key 不写入代码、测试或 git tracked 配置文件；仅通过环境变量或 `config.yaml`（已 gitignore）注入
+- **/health 例外**：rag-service 部署时 `/health` 公开（运维健康检查需要），但 RagClient 调 health 时也带 Key 以保持一致性（带 Key 调公开端点不影响结果）
 
 ### 13.1 调用约定
 
