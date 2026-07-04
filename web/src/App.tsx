@@ -88,11 +88,11 @@ function App() {
             }
           />
 
-          {/* D-01 / D-02 / D-04 / D-05 开发人员工作台 */}
+          {/* D-01 / D-02 / D-04 / D-05 开发人员工作台（仅 developer） */}
           <Route
             path="dev/prompts"
             element={
-              <RequireRole roles={['admin']}>
+              <RequireRole roles={['developer']}>
                 <PromptVersions />
               </RequireRole>
             }
@@ -100,7 +100,7 @@ function App() {
           <Route
             path="dev/agent-stats"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <AgentCallStats />
               </RequireRole>
             }
@@ -108,7 +108,7 @@ function App() {
           <Route
             path="dev/traces"
             element={
-              <RequireRole roles={['developer', 'admin']}>
+              <RequireRole roles={['developer']}>
                 <SpanTreeView />
               </RequireRole>
             }
@@ -116,7 +116,7 @@ function App() {
           <Route
             path="dev/tokens"
             element={
-              <RequireRole roles={['developer', 'admin']}>
+              <RequireRole roles={['developer']}>
                 <TokenDashboard />
               </RequireRole>
             }

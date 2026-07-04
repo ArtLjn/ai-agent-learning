@@ -38,10 +38,10 @@ const navItems: NavItem[] = [
   { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
   { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
-  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['admin'] },
-  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['admin', 'developer'] },
-  { to: '/dev/traces', icon: GitBranch, label: 'Trace 决策树', roles: ['developer', 'admin'] },
-  { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer', 'admin'] },
+  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['developer'] },
+  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['developer'] },
+  { to: '/dev/traces', icon: GitBranch, label: 'Trace 决策树', roles: ['developer'] },
+  { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer'] },
   { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin'] },
 ]
 
