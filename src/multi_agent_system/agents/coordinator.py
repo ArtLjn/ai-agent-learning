@@ -17,24 +17,32 @@ if TYPE_CHECKING:
 
 __all__ = ["CoordinatorAgent"]
 
-# 升级提示词
+# D-02：4 个 prompt 模板
+# - _SUGGEST_DECISION_PROMPT 是主决策（在版本管理范围内），从 prompts/coordinator_suggest_decision.j2 加载
+# - 另外 3 个（升级 / 失败 / 报告）是辅助格式化模板，仍用 jinja2 渲染，但不在版本管理范围
+#   这里以 .format() 转义的 {{...}} 已改为 jinja2 兼容的单 { }（不影响功能）
+from jinja2 import Template
+
+from src.multi_agent_system.prompts import get_prompt_template
+
+# 升级提示词（{{...}} 已转单 { } 兼容 jinja2）
 _ESCALATE_PROMPT = """\
-工单 {ticket_id} 需要升级到人工处理。
-升级原因：{reason}
+工单 {{ ticket_id }} 需要升级到人工处理。
+升级原因：{{ reason }}
 请生成一份简洁的升级说明，包含问题摘要和建议处理方向。
 
 严格按以下 JSON 格式输出：
-{{"escalation_summary": "问题摘要", "suggested_action": "建议处理方向", "assigned_team": "建议分配团队"}}\
+{"escalation_summary": "问题摘要", "suggested_action": "建议处理方向", "assigned_team": "建议分配团队"}\
 """
 
 # 失败处理提示词
 _FAILURE_PROMPT = """\
-工单 {ticket_id} 处理失败。
-错误信息：{error}
+工单 {{ ticket_id }} 处理失败。
+错误信息：{{ error }}
 请生成一份失败分析报告。
 
 严格按以下 JSON 格式输出：
-{{"failure_analysis": "失败原因分析", "recovery_suggestion": "恢复建议", "requires_manual_review": true/false}}\
+{"failure_analysis": "失败原因分析", "recovery_suggestion": "恢复建议", "requires_manual_review": true/false}\
 """
 
 # 报告生成提示词
@@ -42,7 +50,7 @@ _REPORT_PROMPT = """\
 你是工单处理系统的协调员。请根据以下工单数据生成一份处理报告摘要。
 
 工单数据：
-{tickets_data}
+{{ tickets_data }}
 
 报告要求：
 1. 工单总数和分类统计
@@ -53,25 +61,8 @@ _REPORT_PROMPT = """\
 请用简洁的中文输出报告。\
 """
 
-# 人工审核辅助决策提示词
-_SUGGEST_DECISION_PROMPT = """\
-你是工单审核助理。请根据以下信息为人工审核员提供决策建议。
-
-工单 ID：{ticket_id}
-触发类型：{trigger_type}
-触发原因：{trigger_reason}
-AI 处理结果：{processing_result}
-AI 审核评分：{review_score}
-
-请基于以下原则给出建议：
-1. 若 AI 处理结果完整、回应了用户问题、无安全隐患 → 建议approve
-2. 若 AI 结果方向正确但有局部瑕疵 → 建议rewrite并指出问题
-3. 若 AI 结果方向错误或重试超限 → 建议reprocess
-4. 若用户投诉或涉及账户安全且 AI 处理不充分 → 建议reject
-
-严格按以下 JSON 输出：
-{{"recommended_decision": "...", "confidence": 0.0, "reasoning": "...", "key_concerns": ["...", "..."]}}\
-"""
+# 人工审核辅助决策提示词（D-02 主版本管理对象）
+_SUGGEST_DECISION_PROMPT = get_prompt_template("coordinator")
 
 
 def _suggest_decision_fallback(
@@ -194,7 +185,7 @@ class CoordinatorAgent:
             RetryableError: OpenAI API 可重试错误
             NonRetryableError: 认证失败或 JSON 解析失败
         """
-        prompt = _ESCALATE_PROMPT.format(ticket_id=ticket_id, reason=reason)
+        prompt = Template(_ESCALATE_PROMPT).render(ticket_id=ticket_id, reason=reason)
 
         try:
             response = await self.client.chat_completions_create(
@@ -282,7 +273,7 @@ class CoordinatorAgent:
             RetryableError: OpenAI API 可重试错误
             NonRetryableError: 认证失败或 JSON 解析失败
         """
-        prompt = _FAILURE_PROMPT.format(ticket_id=ticket_id, error=error)
+        prompt = Template(_FAILURE_PROMPT).render(ticket_id=ticket_id, error=error)
 
         try:
             response = await self.client.chat_completions_create(
@@ -363,7 +354,7 @@ class CoordinatorAgent:
             NonRetryableError: 认证失败
         """
         tickets_data = json.dumps(tickets, ensure_ascii=False, indent=2)
-        prompt = _REPORT_PROMPT.format(tickets_data=tickets_data)
+        prompt = Template(_REPORT_PROMPT).render(tickets_data=tickets_data)
 
         try:
             response = await self.client.chat_completions_create(
@@ -468,11 +459,11 @@ class CoordinatorAgent:
             RetryableError: OpenAI API 可重试错误
             NonRetryableError: 认证失败或 JSON 解析失败
         """
-        prompt = (
+        prompt = Template(
             self._suggest_decision_override
             if self._suggest_decision_override
             else _SUGGEST_DECISION_PROMPT
-        ).format(
+        ).render(
             ticket_id=ticket_id,
             trigger_type=trigger_type,
             trigger_reason=trigger_reason,

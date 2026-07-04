@@ -11,29 +11,12 @@ from src.multi_agent_system.core.exceptions import NonRetryableError, RetryableE
 from src.multi_agent_system.core.json_parser import parse_json_response
 from src.multi_agent_system.core.risk_policy import assess_ticket_risk
 from src.multi_agent_system.models.ticket import TicketCategory, TicketPriority
+from src.multi_agent_system.prompts import get_prompt_template
 
 __all__ = ["ClassifierAgent"]
 
-# 分类提示词
-_CLASSIFIER_SYSTEM_PROMPT = """\
-你是一个工单分类专家。请分析工单内容，输出分类和优先级。
-
-分类规则：
-- technical: 技术问题（崩溃、报错、无法登录、系统异常等）
-- billing: 计费问题（退款、账单、扣费、付费异常等）
-- complaint: 投诉（用户不满、服务差评、投诉要求等）
-- inquiry: 咨询（使用方法、功能咨询、一般性问题等）
-
-优先级规则：
-- P0: 系统完全不可用、大规模故障、数据丢失
-- P1: 核心功能故障、紧急投诉、资金异常、疑似安全漏洞或高危风险
-- P2: 一般功能问题、普通计费问题
-- P3: 咨询类、轻微问题
-
-注意：category 只能选一个，不要组合多个分类。
-请严格按照以下 JSON 格式输出，不要添加任何额外内容：
-{"category": "technical 或 billing 或 complaint 或 inquiry（只选一个）", "priority": "P0 或 P1 或 P2 或 P3（只选一个）", "intent_kind": "knowledge_question 或 business_action 或 complaint 或 incident", "requires_business_operation": true 或 false, "required_fields": ["order_id", "payment_record", "user_id"] 中缺少则列出，没有则为空数组, "can_auto_resolve": true 或 false, "risk_level": "low 或 medium 或 high 或 critical", "requires_human_review": true 或 false, "risk_reason": "触发人工审核的风险原因，没有则为空字符串", "confidence": 0.0~1.0 的置信度, "reason": "分类和优先级判断的简要理由"}\
-"""
+# 分类提示词（D-02：从 prompts/classifier.j2 加载，DB 中 active 版本可覆盖）
+_CLASSIFIER_SYSTEM_PROMPT = get_prompt_template("classify")
 
 # 关键词降级规则（与 graph.py 中的占位逻辑一致）
 _FALLBACK_RULES: dict[str, tuple[str, str]] = {
