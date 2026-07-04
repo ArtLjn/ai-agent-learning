@@ -252,6 +252,46 @@ class TestRagClientHealth:
         await client.close()
 
 
+class TestRagClientApiKeyHeader:
+    """X-API-Key header 注入测试（C2 补丁：生产 rag-service 必填）。"""
+
+    @pytest.mark.asyncio
+    async def test_retrieve_includes_api_key_header_when_configured(self) -> None:
+        """api_key 非空时，/retrieve 请求带 X-API-Key header。"""
+        client = RagClient(
+            base_url="http://rag-service:8001",
+            api_key="test-secret-key-1234",
+        )
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(200, _build_retrieve_response())
+        client._client = mock_http
+
+        await client.retrieve(query="q", collection="c")
+
+        # 验证 POST 调用时传了 X-API-Key header
+        assert mock_http.post.called
+        _, kwargs = mock_http.post.call_args
+        headers = kwargs.get("headers") or {}
+        assert headers.get("X-API-Key") == "test-secret-key-1234"
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_retrieve_omits_api_key_header_when_empty(self) -> None:
+        """api_key 为空时，/retrieve 请求不带 X-API-Key header（兼容本地开发）。"""
+        client = RagClient(base_url="http://rag-service:8001", api_key="")
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(200, _build_retrieve_response())
+        client._client = mock_http
+
+        await client.retrieve(query="q", collection="c")
+
+        assert mock_http.post.called
+        _, kwargs = mock_http.post.call_args
+        headers = kwargs.get("headers") or {}
+        assert "X-API-Key" not in headers
+        await client.close()
+
+
 class TestReActProcessorDegradeOnRagFailure:
     """ReActProcessorAgent 在 RagClient 失败时降级到无知识增强路径。"""
 

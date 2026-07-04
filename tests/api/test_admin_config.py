@@ -195,6 +195,7 @@ def test_secret_fields_not_in_response(client: TestClient, app: FastAPI) -> None
         "llm_api_key",
         "embedding_api_key",
         "qdrant_api_key",
+        "rag_service_api_key",
         "auth_password_hash",
         "auth_session_secret",
         "database_url",
@@ -213,6 +214,23 @@ def test_url_fields_visible(client: TestClient, app: FastAPI) -> None:
     assert body["llm"]["base_url"]  # 非空字符串
     assert body["qdrant"]["url"]
     assert body["embedding"]["base_url"]
+
+
+def test_rag_service_api_key_only_returns_configured_flag(
+    client: TestClient, app: FastAPI
+) -> None:
+    """rag_service 字段含 api_key_configured 布尔，不返回 api_key 原值。
+
+    密钥全脱敏：仅返回 configured 标志，原值绝不进响应。
+    """
+    user = _register(client, "theadmin")
+    _promote_to_admin(client, app, user["user_id"])
+
+    rag_cfg = client.get("/api/admin/config").json()["rag_service"]
+    assert "api_key_configured" in rag_cfg
+    assert isinstance(rag_cfg["api_key_configured"], bool)
+    # 不应出现 api_key 原值字段
+    assert "api_key" not in rag_cfg
 
 
 def test_auth_category_does_not_leak_secret(client: TestClient, app: FastAPI) -> None:
