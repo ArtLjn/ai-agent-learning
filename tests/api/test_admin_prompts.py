@@ -111,6 +111,37 @@ def test_list_user_role_returns_403(client: TestClient) -> None:
     assert resp.status_code == 403
 
 
+def test_list_developer_role_returns_200(
+    client: TestClient, app: FastAPI
+) -> None:
+    """developer 角色可以列 Prompt 版本（与 admin 等价）。"""
+    dev = _register(client, "dev1")
+    _promote_to_admin(client, app, dev["user_id"])  # 先升 admin
+    # 再降为 developer
+    client.portal.call(app.state.db_manager.update_user_role, dev["user_id"], "developer")
+    _relogin(client, "dev1")
+
+    resp = client.get("/api/admin/prompts/classify/versions")
+    assert resp.status_code == 200, resp.text
+
+
+def test_create_developer_role_returns_201(
+    client: TestClient, app: FastAPI
+) -> None:
+    """developer 角色可以新建 Prompt 版本。"""
+    dev = _register(client, "dev2")
+    _promote_to_admin(client, app, dev["user_id"])
+    client.portal.call(app.state.db_manager.update_user_role, dev["user_id"], "developer")
+    _relogin(client, "dev2")
+
+    resp = client.post(
+        "/api/admin/prompts/classify/versions",
+        json={"template": "dev version", "note": "by developer"},
+    )
+    assert resp.status_code == 201, resp.text
+    assert resp.json()["template"] == "dev version"
+
+
 def test_invalid_agent_name_returns_422(client: TestClient, app: FastAPI) -> None:
     """agent_name 不在 5 个白名单 → 422。"""
     admin = _register(client, "admin1")

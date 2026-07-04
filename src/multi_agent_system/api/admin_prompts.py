@@ -23,7 +23,11 @@ from src.multi_agent_system.models.prompt_version import ALLOWED_AGENT_NAMES
 
 __all__ = ["router"]
 
-router = APIRouter(prefix="/admin/prompts", tags=["admin-prompts"])
+router = APIRouter(
+    prefix="/admin/prompts",
+    tags=["admin-prompts"],
+    dependencies=[Depends(require_role("admin", "developer"))],
+)
 
 
 class CreatePromptVersionRequest(BaseModel):
@@ -52,7 +56,6 @@ async def list_versions(
     request: Request,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _admin: dict = Depends(require_role("admin")),
 ) -> dict[str, Any]:
     """列出某 Agent 的所有 Prompt 版本。"""
     _validate_agent_name(agent_name)
@@ -68,7 +71,6 @@ async def list_versions(
 async def get_active(
     agent_name: str,
     request: Request,
-    _admin: dict = Depends(require_role("admin")),
 ) -> dict[str, Any]:
     """获取某 Agent 当前激活版本（无激活返回 null）。"""
     _validate_agent_name(agent_name)
@@ -82,7 +84,6 @@ async def create_version(
     agent_name: str,
     body: CreatePromptVersionRequest,
     request: Request,
-    _admin: dict = Depends(require_role("admin")),
 ) -> dict[str, Any]:
     """新建版本；version 自增。activate=true 时同时切换 active。"""
     _validate_agent_name(agent_name)
@@ -106,7 +107,6 @@ async def activate_version(
     agent_name: str,
     version: int,
     request: Request,
-    _admin: dict = Depends(require_role("admin")),
 ) -> dict[str, Any]:
     """激活指定版本；旧 active 自动置 false。"""
     _validate_agent_name(agent_name)
@@ -126,7 +126,6 @@ async def diff_versions(
     request: Request,
     from_version: int = Query(..., alias="from", ge=1),
     to_version: int = Query(..., alias="to", ge=1),
-    _admin: dict = Depends(require_role("admin")),
 ) -> dict[str, Any]:
     """difflib unified_diff 对比两个版本。"""
     _validate_agent_name(agent_name)
