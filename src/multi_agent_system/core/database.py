@@ -811,6 +811,7 @@ class DatabaseManager:
     async def list_traces(
         self,
         status: str | None = None,
+        ticket_id: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -821,6 +822,8 @@ class DatabaseManager:
             )
             if status:
                 stmt = stmt.where(TraceORM.status == status)
+            if ticket_id:
+                stmt = stmt.where(TraceORM.ticket_id == ticket_id)
             stmt = stmt.order_by(TraceORM.start_time.desc()).limit(limit).offset(offset)
             rows = (await session.execute(stmt)).all()
             out = []
@@ -838,11 +841,17 @@ class DatabaseManager:
                 out.append(d)
             return out
 
-    async def count_traces(self, status: str | None = None) -> int:
+    async def count_traces(
+        self,
+        status: str | None = None,
+        ticket_id: str | None = None,
+    ) -> int:
         async with self._session() as session:
             stmt = select(func.count()).select_from(TraceORM)
             if status:
                 stmt = stmt.where(TraceORM.status == status)
+            if ticket_id:
+                stmt = stmt.where(TraceORM.ticket_id == ticket_id)
             return int((await session.execute(stmt)).scalar() or 0)
 
     async def get_trace_stats(self, trace_id: str) -> dict[str, Any] | None:
