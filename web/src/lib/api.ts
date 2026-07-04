@@ -1,10 +1,15 @@
 import type {
+  AgentStatsResponse,
   Analytics,
   ApiRecord,
   AuditLogListResponse,
   ChangePasswordRequest,
   ChangePasswordResponse,
   KnowledgeListResponse,
+  PromptAgentName,
+  PromptDiffResponse,
+  PromptVersion,
+  PromptVersionListResponse,
   RegisterRequest,
   RegisterResponse,
   SystemConfig,
@@ -169,6 +174,37 @@ export const api = {
     const qs = params ? '?' + new URLSearchParams(params).toString() : ''
     return request<AuditLogListResponse>(`/admin/audit-logs${qs}`)
   },
+
+  // D-02 Prompt 版本管理
+  listPromptVersions: (agentName: PromptAgentName) =>
+    request<PromptVersionListResponse>(`/admin/prompts/${agentName}/versions`),
+  getActivePrompt: (agentName: PromptAgentName) =>
+    request<{ active: PromptVersion | null }>(`/admin/prompts/${agentName}/active`),
+  createPromptVersion: (
+    agentName: PromptAgentName,
+    data: { template: string; note?: string; activate?: boolean },
+  ) =>
+    request<PromptVersion>(`/admin/prompts/${agentName}/versions`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  activatePromptVersion: (agentName: PromptAgentName, version: number) =>
+    request<PromptVersion>(
+      `/admin/prompts/${agentName}/versions/${version}/activate`,
+      { method: 'POST' },
+    ),
+  diffPromptVersions: (
+    agentName: PromptAgentName,
+    fromVersion: number,
+    toVersion: number,
+  ) =>
+    request<PromptDiffResponse>(
+      `/admin/prompts/${agentName}/diff?from=${fromVersion}&to=${toVersion}`,
+    ),
+
+  // D-05 Agent 调用统计
+  getAgentStats: (days: number = 7) =>
+    request<AgentStatsResponse>(`/admin/stats/agents?days=${days}`),
 
   // Health（不鉴权，供前端探活）
   getHealth: () => request<ApiRecord>('/health'),
