@@ -16,41 +16,10 @@ from src.multi_agent_system.models.ticket import TicketCategory, TicketPriority
 
 __all__ = ["TicketIntentAgent"]
 
-_INTENT_SYSTEM_PROMPT = """\
-你是一个工单意图理解 Agent。用户会用自然语言描述问题，你需要提取结构化工单字段。
+# D-02：从 prompts/intent.j2 加载（DB active 版本可覆盖）
+from src.multi_agent_system.prompts import get_prompt_template
 
-分类 category 只能从以下值中选择：
-- technical: 技术支持、系统故障、接口异常、登录失败、报错、性能问题
-- billing: 账务问题、扣费、退款、账单、套餐、发票
-- complaint: 投诉建议、服务不满、体验差、要求投诉
-- inquiry: 咨询问询、功能入口、操作方法、规则咨询
-
-优先级 priority 只能从以下值中选择：
-- P0: 系统完全不可用、大规模故障、核心业务不可用、数据丢失
-- P1: 核心功能异常、影响多人、资金异常、紧急投诉、疑似安全漏洞或高危风险
-- P2: 一般功能问题、普通账务问题、需要人工处理
-- P3: 咨询、建议、低影响问题
-
-请严格输出 JSON，不要添加额外文本：
-{
-  "title": "一句话标题，最长 30 字",
-  "category": "technical 或 billing 或 complaint 或 inquiry",
-  "priority": "P0 或 P1 或 P2 或 P3",
-  "impact": "仅本人受影响 或 部分用户受影响 或 全部用户受影响 或 核心业务不可用",
-  "expectation": "用户期望处理结果，没有则为空字符串",
-  "contact": "联系方式，没有则为空字符串",
-  "occurred_at": "发生时间，没有则为空字符串",
-  "intent_kind": "knowledge_question 或 business_action 或 complaint 或 incident",
-  "requires_business_operation": true 或 false,
-  "required_fields": ["order_id", "payment_record", "user_id"] 中缺少则列出，没有则为空数组,
-  "can_auto_resolve": true 或 false,
-  "risk_level": "low 或 medium 或 high 或 critical",
-  "requires_human_review": true 或 false,
-  "risk_reason": "需要人工审核的风险原因，没有则为空字符串",
-  "confidence": 0.0 到 1.0,
-  "reason": "简短说明判断依据"
-}\
-"""
+_INTENT_SYSTEM_PROMPT = get_prompt_template("intent")
 
 _CATEGORY_LABELS = {
     TicketCategory.TECHNICAL.value: "技术支持",

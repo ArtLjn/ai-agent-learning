@@ -137,9 +137,11 @@ async def lifespan(app: FastAPI):
     app.state.coordinator = coordinator
     app.state.workflow = workflow
 
-    # D-02：加载 prompt_versions 表中 active 模板覆盖代码默认
+    # D-02：先 seed 默认 v1（DB 无版本时）→ 再 load active 模板覆盖代码默认
     from src.multi_agent_system.core.prompt_loader import load_active_prompts
+    from src.multi_agent_system.core.prompt_seeder import seed_default_prompts
 
+    await seed_default_prompts(db_manager)
     await load_active_prompts(
         db_manager,
         {
