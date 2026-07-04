@@ -123,6 +123,17 @@ class CoordinatorAgent:
         self._base_url = base_url
         self._task_type = task_type
         self._client: CachedLLMClient | None = None
+        # D-02：DB 覆盖的 prompt 模板（None 表示用代码默认）
+        self._suggest_decision_override: str | None = None
+
+    def set_prompt_override(self, template: str | None) -> None:
+        """注入 DB 中的 active prompt 模板（覆盖 _SUGGEST_DECISION_PROMPT）。
+
+        coordinator 有 4 个 prompt，但只有 _SUGGEST_DECISION_PROMPT 涉及 LLM 决策；
+        其他 3 个是固定格式化模板，不在版本管理范围内。
+        覆盖时需保留 {tickets_data} 等占位符。
+        """
+        self._suggest_decision_override = template
 
     @property
     def client(self) -> CachedLLMClient:
@@ -457,7 +468,11 @@ class CoordinatorAgent:
             RetryableError: OpenAI API 可重试错误
             NonRetryableError: 认证失败或 JSON 解析失败
         """
-        prompt = _SUGGEST_DECISION_PROMPT.format(
+        prompt = (
+            self._suggest_decision_override
+            if self._suggest_decision_override
+            else _SUGGEST_DECISION_PROMPT
+        ).format(
             ticket_id=ticket_id,
             trigger_type=trigger_type,
             trigger_reason=trigger_reason,

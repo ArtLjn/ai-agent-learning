@@ -107,6 +107,16 @@ class ReActProcessorAgent:
         self._context_manager = ContextManager()
         # v2.0：优先用 rag-service（HTTP 客户端），失败时降级到 KnowledgeSearchTool
         self._rag_client = rag_client
+        # D-02：DB 覆盖的 prompt 模板（None 表示用代码默认 _REACT_SYSTEM_PROMPT）
+        self._prompt_override: str | None = None
+
+    def set_prompt_override(self, template: str | None) -> None:
+        """注入 DB 中的 active prompt 模板；传 None 还原代码默认。
+
+        注意：ReAct prompt 含 {tools_description}/{ticket_info}/{user_context}
+        占位符，覆盖时需保留这些占位符以避免 .format() 失败。
+        """
+        self._prompt_override = template
 
     @property
     def client(self) -> CachedLLMClient:
@@ -200,7 +210,9 @@ class ReActProcessorAgent:
                     parts.append(f"- {s['name']}: {s['description']} 参数: {param_desc}")
                 tools_description = "\n".join(parts)
 
-        system_prompt = _REACT_SYSTEM_PROMPT.format(
+        system_prompt = (
+            self._prompt_override if self._prompt_override else _REACT_SYSTEM_PROMPT
+        ).format(
             tools_description=tools_description,
             ticket_info=ticket_info,
             user_context=user_context_str,

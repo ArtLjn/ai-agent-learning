@@ -63,6 +63,16 @@ class ReviewerAgent:
         self._base_url = base_url
         self._task_type = task_type
         self._client: CachedLLMClient | None = None
+        # D-02：DB 覆盖的 prompt 模板（None 表示用代码默认 _REVIEWER_SYSTEM_PROMPT）
+        self._prompt_override: str | None = None
+
+    def set_prompt_override(self, template: str | None) -> None:
+        """注入 DB 中的 active prompt 模板；传 None 还原代码默认。
+
+        注意：reviewer 的 system prompt 含 {ticket_info}/{review_criteria}/{history}
+        占位符，覆盖时需保留这些占位符以避免 .format() 失败。
+        """
+        self._prompt_override = template
 
     @property
     def client(self) -> CachedLLMClient:
@@ -127,7 +137,9 @@ class ReviewerAgent:
             RetryableError: OpenAI API 可重试错误
             NonRetryableError: 认证失败或 JSON 解析失败
         """
-        system_prompt = _REVIEWER_SYSTEM_PROMPT.format(
+        system_prompt = (
+            self._prompt_override if self._prompt_override else _REVIEWER_SYSTEM_PROMPT
+        ).format(
             content=content,
             category=category,
             processing_result=processing_result,

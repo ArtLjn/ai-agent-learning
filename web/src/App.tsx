@@ -14,6 +14,8 @@ import { Register } from '@/pages/Register'
 import { Profile } from '@/pages/Profile'
 import { UserManagement } from '@/pages/admin/UserManagement'
 import { AuditLog } from '@/pages/admin/AuditLog'
+import { PromptVersions } from '@/pages/dev/PromptVersions'
+import { AgentCallStats } from '@/pages/dev/AgentCallStats'
 
 function App() {
   return (
@@ -80,6 +82,24 @@ function App() {
             element={
               <RequireRole roles={['admin']}>
                 <AuditLog />
+              </RequireRole>
+            }
+          />
+
+          {/* D-02 / D-05 开发者工作台 */}
+          <Route
+            path="dev/prompts"
+            element={
+              <RequireRole roles={['admin']}>
+                <PromptVersions />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="dev/agent-stats"
+            element={
+              <RequireRole roles={['admin', 'developer']}>
+                <AgentCallStats />
               </RequireRole>
             }
           />

@@ -24,10 +24,12 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "/", "/tickets", "/tickets/:id", "/profile",
         "/reviews", "/knowledge", "/monitor", "/settings",
         "/admin/users", "/admin/audit-logs",
+        "/dev/prompts", "/dev/agent-stats",
     ],
     "developer": [
         "/", "/tickets", "/tickets/:id", "/profile",
         "/reviews", "/monitor",
+        "/dev/agent-stats",
     ],
 }
 

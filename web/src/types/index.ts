@@ -515,3 +515,54 @@ export interface AuditLogListResponse {
   page_size: number
   actions: Record<string, string>
 }
+
+// D-02 Prompt 版本管理
+export type PromptAgentName = 'intent' | 'classify' | 'process' | 'review' | 'coordinator'
+
+export interface PromptVersion {
+  prompt_id: number
+  agent_name: PromptAgentName
+  version: number
+  template: string
+  is_active: boolean
+  note: string | null
+  created_at: string | null
+  activated_at: string | null
+}
+
+export interface PromptVersionListResponse {
+  items: PromptVersion[]
+  total: number
+  page: number
+  page_size: number
+}
+
+export interface PromptDiffResponse {
+  agent_name: PromptAgentName
+  from_version: number
+  to_version: number
+  diff: string
+  has_diff: boolean
+}
+
+// D-05 Agent 调用统计
+export interface AgentStatEntry {
+  agent_name: PromptAgentName
+  span_name: string | null
+  call_type: string
+  call_count: number
+  avg_duration_ms: number
+  max_duration_ms: number
+  success_rate: number
+  error_count: number
+  total_tokens: number
+  prompt_tokens: number
+  completion_tokens: number
+  request_count: number
+}
+
+export interface AgentStatsResponse {
+  days: number
+  since: string
+  agents: AgentStatEntry[]
+}

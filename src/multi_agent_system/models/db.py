@@ -15,6 +15,7 @@ from datetime import datetime
 
 from src.multi_agent_system.models.audit_log import AuditLogORM
 from src.multi_agent_system.models.base import Base
+from src.multi_agent_system.models.prompt_version import PromptVersionORM
 from src.multi_agent_system.models.token_stats import TokenDailyStatsORM
 
 __all__ = [
@@ -29,6 +30,7 @@ __all__ = [
     "TicketMessageORM",
     "AuditLogORM",
     "TokenDailyStatsORM",
+    "PromptVersionORM",
 ]
 
 

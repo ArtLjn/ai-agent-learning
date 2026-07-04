@@ -12,6 +12,8 @@ import {
   UserCircle,
   Users2,
   ScrollText,
+  Sparkles,
+  BarChart3,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
@@ -34,6 +36,8 @@ const navItems: NavItem[] = [
   { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
   { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
+  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['admin'] },
+  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['admin', 'developer'] },
   { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin'] },
 ]
 
