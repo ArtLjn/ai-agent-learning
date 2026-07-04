@@ -198,6 +198,15 @@ class CachedLLMClient:
                 from src.multi_agent_system.workflow.graph import _trace_manager
                 if _trace_manager is not None:
                     await _trace_manager.add_token_usage(trace_id, total_tokens)
+                    # 累加 token_daily_stats（v2.0：Token 成本控制台数据源）
+                    call_type = _map_call_type(task_type)
+                    await _trace_manager.accumulate_token_daily_stats(
+                        trace_id=trace_id,
+                        model=model,
+                        call_type=call_type,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                    )
 
     @staticmethod
     def _get_llm_span(
@@ -274,6 +283,30 @@ def _numeric_usage(value: Any) -> int:
     if isinstance(value, int | float):
         return int(value)
     return 0
+
+
+# task_type → call_type 映射（详见 12 号设计文档第 7 节枚举）
+_TASK_TYPE_TO_CALL_TYPE: dict[str, str] = {
+    "intent": "intent",
+    "ticket_intent": "intent",
+    "classify": "classify",
+    "classifier": "classify",
+    "process": "process",
+    "processor": "process",
+    "react_processor": "process",
+    "review": "review",
+    "reviewer": "review",
+    "coordinator": "coordinator",
+    "report": "coordinator",
+    "rag": "rag",
+}
+
+
+def _map_call_type(task_type: str | None) -> str:
+    """task_type 映射到 token_daily_stats.call_type 枚举；未知值默认 process。"""
+    if not task_type:
+        return "process"
+    return _TASK_TYPE_TO_CALL_TYPE.get(task_type, "process")
 
 
 def _truncate_text(text: str, max_length: int) -> str:

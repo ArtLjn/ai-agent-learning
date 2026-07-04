@@ -12,6 +12,7 @@
 
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.engine import make_url
 
@@ -20,6 +21,9 @@ from src.multi_agent_system.core.permissions import require_role
 __all__ = ["router"]
 
 router = APIRouter(prefix="/admin/config", tags=["admin-config"])
+
+# rag-service /health 健康检查超时（秒）。短超时避免阻塞 admin/config 响应。
+_RAG_HEALTH_TIMEOUT_SECONDS = 2.0
 
 
 def _mask_database_url(url: str) -> dict[str, Any]:
@@ -48,6 +52,53 @@ def _mask_database_url(url: str) -> dict[str, Any]:
             "password_configured": False,
             "parse_error": True,
         }
+
+
+async def _probe_rag_service_health(base_url: str) -> dict[str, Any]:
+    """调用 rag-service /health，返回 {status, components, error}。
+
+    超时或异常时 status=unreachable，前端按红色徽章渲染。
+    """
+    health_url = f"{base_url.rstrip('/')}/health"
+    try:
+        async with httpx.AsyncClient(timeout=_RAG_HEALTH_TIMEOUT_SECONDS) as client:
+            response = await client.get(health_url)
+            response.raise_for_status()
+            body = response.json()
+        return {
+            "status": body.get("status", "ok"),
+            "components": body.get("components") or {},
+            "warning": body.get("warning"),
+            "error": None,
+        }
+    except Exception as e:  # noqa: BLE001
+        return {
+            "status": "unreachable",
+            "components": {},
+            "warning": None,
+            "error": f"{type(e).__name__}: {e}",
+        }
+
+
+async def _build_rag_service_view(settings: Any) -> dict[str, Any]:
+    """构造 rag_service 配置视图：base_url + 健康检查 + 客户端配置。
+
+    整合 v2.0 RagClient 接入状态，供 A-06 系统配置查看页展示。
+    """
+    base_url = settings.rag_service_url
+    health = await _probe_rag_service_health(base_url)
+    return {
+        "base_url": base_url,
+        "timeout_seconds": settings.rag_service_timeout_seconds,
+        "retry": settings.rag_service_retry,
+        "fallback_enabled": settings.rag_service_fallback_enabled,
+        "status": health["status"],
+        "components": health["components"],
+        "warning": health["warning"],
+        "error": health["error"],
+        # rag-service 无显式 api_key 概念（毕设范围默认无鉴权）
+        "api_key_configured": False,
+    }
 
 
 @router.get("")
@@ -93,13 +144,7 @@ async def get_system_config(
             "batch_size": settings.qdrant_batch_size,
             "api_key_configured": bool(settings.qdrant_api_key),
         },
-        "rag_service": {
-            # v2.0 设计：主系统作为 rag-service 的客户端（11 号文档）。
-            # 当前未在 Settings 中接入 rag_service_url，统一标记为 not_configured。
-            "status": "not_configured",
-            "base_url": None,
-            "api_key_configured": False,
-        },
+        "rag_service": await _build_rag_service_view(settings),
         "database": _mask_database_url(settings.database_url),
         "auth": {
             "auth_enabled": settings.auth_enabled,

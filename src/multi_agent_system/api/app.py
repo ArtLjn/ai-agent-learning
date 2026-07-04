@@ -63,6 +63,15 @@ async def lifespan(app: FastAPI):
         knowledge_tool = None
         logger.warning(f"知识库工具初始化失败（不影响核心功能）: {e}")
 
+    # v2.0：初始化 rag-service HTTP 客户端（失败不阻塞，ReActProcessorAgent 走降级）
+    from src.multi_agent_system.tools.rag_client import RagClient
+
+    rag_client = RagClient.create_from_settings()
+    logger.info(
+        f"rag-service 客户端初始化（base_url={rag_client._base_url}, "
+        f"timeout={rag_client._timeout}s, retry={rag_client._retry}）"
+    )
+
     # Initialize memory manager
     from src.multi_agent_system.core.memory import MemoryManager
 
@@ -85,6 +94,7 @@ async def lifespan(app: FastAPI):
     processor = ReActProcessorAgent.create_from_settings(
         tool_registry=tool_registry,
         knowledge_tool=knowledge_tool,
+        rag_client=rag_client,
     )
     reviewer = ReviewerAgent.create_from_settings()
     coordinator = CoordinatorAgent.create_from_settings(
@@ -113,6 +123,7 @@ async def lifespan(app: FastAPI):
     app.state.notification_tool = notification_tool
     app.state.analytics_tool = analytics_tool
     app.state.knowledge_tool = knowledge_tool
+    app.state.rag_client = rag_client
     app.state.memory_manager = memory_manager
     app.state.trace_manager = trace_manager
     app.state.tool_registry = tool_registry

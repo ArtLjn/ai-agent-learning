@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     qdrant_top_k: int = 3
     qdrant_score_threshold: float = 0.5
 
+    # rag-service 配置（v2.0：主系统作为 rag-service 客户端，详见 11 号文档）
+    rag_service_url: str = "http://localhost:8001"
+    rag_service_timeout_seconds: int = 10
+    rag_service_retry: int = 1
+    rag_service_fallback_enabled: bool = True
+
     # 文档分块（RAG ingestion）
     chunk_size: int = 512
     chunk_overlap: int = 64

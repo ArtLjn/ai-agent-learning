@@ -14,6 +14,7 @@ from src.multi_agent_system.core.exceptions import NonRetryableError, RetryableE
 from src.multi_agent_system.core.json_parser import parse_json_response
 from src.multi_agent_system.core.memory import MemoryManager
 from src.multi_agent_system.core.trace import current_trace_id
+from src.multi_agent_system.tools.rag_client import RagChunk, RagClient, RagServiceUnavailable
 
 if TYPE_CHECKING:
     from src.multi_agent_system.core.tool_base import ToolRegistry
@@ -93,6 +94,7 @@ class ReActProcessorAgent:
         task_type: str = "process",
         max_iterations: int = 10,
         client: CachedLLMClient | None = None,
+        rag_client: RagClient | None = None,
     ) -> None:
         self._model = model
         self._tool_registry = tool_registry
@@ -103,6 +105,8 @@ class ReActProcessorAgent:
         self._max_iterations = max_iterations
         self._client: CachedLLMClient | None = client
         self._context_manager = ContextManager()
+        # v2.0：优先用 rag-service（HTTP 客户端），失败时降级到 KnowledgeSearchTool
+        self._rag_client = rag_client
 
     @property
     def client(self) -> CachedLLMClient:
@@ -368,19 +372,118 @@ class ReActProcessorAgent:
         }
 
     async def _prefetch_knowledge(self, content: str, category: str) -> str:
-        """处理类工单先做一次知识库检索，保证 RAG 稳定进入上下文。"""
-        if not self._tool_registry or "search_knowledge" not in self._tool_registry:
-            return ""
+        """处理类工单先做一次知识库检索，保证 RAG 稳定进入上下文。
+
+        v2.0 路径优先级：
+        1. RagClient（HTTP 调用 rag-service /retrieve + /rerank）
+        2. KnowledgeSearchTool（admin 上传仍走它写 Qdrant；同时 ReAct 兜底）
+        3. 都不可用时返回空字符串（无知识增强）
+        """
         query = self._normalize_knowledge_query(content)
+
+        # 路径 1：rag-service HTTP 客户端
+        if self._rag_client is not None:
+            result = await self._prefetch_via_rag_client(query)
+            if result:
+                return result
+            # RagClient 失败且未抛错时（fallback_enabled=False 时返回空）继续走 fallback
+
+        # 路径 2：兼容旧 KnowledgeSearchTool（admin 上传走它）
+        if self._tool_registry and "search_knowledge" in self._tool_registry:
+            settings = Settings()
+            return await self._execute_tool(
+                "search_knowledge",
+                {
+                    "query": query,
+                    "top_k": settings.qdrant_top_k,
+                    "score_threshold": settings.qdrant_score_threshold,
+                },
+            )
+
+        return ""
+
+    async def _prefetch_via_rag_client(self, query: str) -> str:
+        """通过 RagClient 调 rag-service 检索 + 重排，并写 rag_stats 到 trace span。
+
+        失败时（RagServiceUnavailable）返回空字符串，让上层降级到 search_knowledge。
+        """
         settings = Settings()
-        return await self._execute_tool(
-            "search_knowledge",
-            {
+        collection = settings.qdrant_collection or "default"
+        retrieve_top_k = max(settings.qdrant_top_k, 5)
+        rerank_top_k = settings.qdrant_top_k
+
+        span = self._get_tool_span("knowledge_search", {"query": query, "via": "rag_client"})
+        async with span:
+            try:
+                chunks, debug = await self._rag_client.retrieve(
+                    query=query,
+                    mode="hybrid",
+                    top_k=retrieve_top_k,
+                    collection=collection,
+                )
+                rag_service_reachable = True
+                actual_mode = debug.get("actual_mode", "hybrid")
+            except RagServiceUnavailable as e:
+                logger.warning(f"[ReAct] RagClient retrieve failed, degrading: {e}")
+                span.set_status("fallback")
+                span.set_metadata({"rag_stats": {
+                    "hit_count": 0,
+                    "top_score": 0.0,
+                    "retrieval_mode": "hybrid",
+                    "rag_service_reachable": False,
+                    "error": str(e),
+                }})
+                return ""
+
+            if chunks:
+                chunks = await self._rag_client.rerank(
+                    query=query,
+                    chunks=chunks,
+                    top_k=rerank_top_k,
+                )
+
+            top_score = chunks[0].score if chunks else 0.0
+            retrieved_docs = [
+                {
+                    "title": (c.metadata or {}).get("title") or "未命名文档",
+                    "category": (c.metadata or {}).get("category") or "未分类",
+                    "score": round(c.score, 4),
+                    "preview": (c.content or "")[:160],
+                }
+                for c in chunks
+            ]
+            span.set_metadata({"rag_stats": {
+                "hit_count": len(chunks),
+                "top_score": round(top_score, 4),
+                "retrieval_mode": actual_mode,
+                "rag_service_reachable": rag_service_reachable,
                 "query": query,
-                "top_k": settings.qdrant_top_k,
-                "score_threshold": settings.qdrant_score_threshold,
-            },
-        )
+                "retrieved_docs": retrieved_docs,
+            }})
+            span.set_output({
+                "hit_count": len(chunks),
+                "retrieved_docs": retrieved_docs,
+            })
+
+            if not chunks:
+                return ""
+            return self._format_rag_chunks(query, chunks)
+
+    @staticmethod
+    def _format_rag_chunks(query: str, chunks: list[RagChunk]) -> str:
+        """把 RagClient 返回的片段格式化为 LLM 可读上下文。"""
+        lines = ["检索到以下知识片段："]
+        for index, chunk in enumerate(chunks, start=1):
+            metadata = chunk.metadata or {}
+            title = metadata.get("title") or "未命名文档"
+            category = metadata.get("category") or "未分类"
+            score = chunk.score
+            content = chunk.content
+            lines.append(
+                f"{index}. 标题: {title}；分类: {category}；"
+                f"相似度: {score:.2f}\n内容: {content}"
+            )
+        return "\n".join(lines)
 
     async def _fallback_with_knowledge(
         self,
@@ -663,6 +766,7 @@ class ReActProcessorAgent:
     def create_from_settings(
         tool_registry: "ToolRegistry | None" = None,
         knowledge_tool: Any = None,
+        rag_client: RagClient | None = None,
     ) -> "ReActProcessorAgent":
         """从 Settings 创建 ReActProcessorAgent 实例。"""
         settings = Settings()
@@ -673,6 +777,7 @@ class ReActProcessorAgent:
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
             max_iterations=settings.max_react_iterations,
+            rag_client=rag_client,
         )
 
 

@@ -46,6 +46,16 @@ chunk_size: 512
 chunk_overlap: 64
 
 # ---------------------------------------------------------------------------
+# rag-service 配置（v2.0：主系统作为 rag-service 客户端，详见 11 号设计文档）
+# ---------------------------------------------------------------------------
+# rag-service 是独立部署的 RAG 中台（端口 8001），主系统通过 HTTP 调用它的
+# /retrieve 与 /rerank。rag-service 不可用时，ReActProcessorAgent 走无知识增强分支。
+rag_service_url: "http://localhost:8001"
+rag_service_timeout_seconds: 10   # 单次请求超时（秒）
+rag_service_retry: 1              # 网络错误重试次数（5xx 不重试）
+rag_service_fallback_enabled: true  # 失败时降级到无 RAG 分支
+
+# ---------------------------------------------------------------------------
 # LLM 缓存（cachetools LRUCache）
 # ---------------------------------------------------------------------------
 cache_enabled: true
