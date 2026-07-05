@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # rag-service API Key（生产 rag.lllcnm.cn 必填，本地开发可选；从环境变量
     # RAG_SERVICE_API_KEY 读，留空时 RagClient 不带 X-API-Key header）
     rag_service_api_key: str = ""
+    # rag-service 业务 collection：admin 上传双写目标 + ReAct agent 检索目标。
+    # 与 qdrant_collection（本地 Qdrant）解耦——本地副本保 admin 页字段不变。
+    rag_service_collection: str = "ticket_knowledge"
 
     # 文档分块（RAG ingestion）
     chunk_size: int = 512

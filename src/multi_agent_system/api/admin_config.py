@@ -93,6 +93,7 @@ async def _build_rag_service_view(settings: Any) -> dict[str, Any]:
         "timeout_seconds": settings.rag_service_timeout_seconds,
         "retry": settings.rag_service_retry,
         "fallback_enabled": settings.rag_service_fallback_enabled,
+        "collection": settings.rag_service_collection,
         "status": health["status"],
         "components": health["components"],
         "warning": health["warning"],

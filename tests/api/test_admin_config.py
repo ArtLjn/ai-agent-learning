@@ -233,6 +233,17 @@ def test_rag_service_api_key_only_returns_configured_flag(
     assert "api_key" not in rag_cfg
 
 
+def test_rag_service_exposes_collection(client: TestClient, app: FastAPI) -> None:
+    """rag_service 字段暴露当前业务 collection 名（admin 双写目标 + agent 检索目标）。"""
+    user = _register(client, "theadmin")
+    _promote_to_admin(client, app, user["user_id"])
+
+    rag_cfg = client.get("/api/admin/config").json()["rag_service"]
+    assert "collection" in rag_cfg
+    # 默认 collection 名（Settings.rag_service_collection）
+    assert rag_cfg["collection"] == "ticket_knowledge"
+
+
 def test_auth_category_does_not_leak_secret(client: TestClient, app: FastAPI) -> None:
     """auth 类只暴露开关，不暴露 hash/secret 原值。"""
     user = _register(client, "theadmin")

@@ -13,6 +13,7 @@ from loguru import logger
 from src.multi_agent_system.core import CachedLLMClient
 from src.multi_agent_system.core.logging import generate_trace_id
 from src.multi_agent_system.core.permissions import require_role
+from src.multi_agent_system.tools.rag_client import RagServiceUnavailable
 from src.multi_agent_system.models.message import TicketMessageCreate
 from src.multi_agent_system.models.ticket import (
     BatchTicketCreate,
@@ -547,11 +548,15 @@ async def upload_knowledge(
     request: Request,
     _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
-    """上传文档到知识库。
+    """上传文档到知识库（双写：本地 Qdrant + rag-service）。
 
     接收 JSON body，需包含 title、content，可选 category。
+    本地写入成功后异步调 rag-service /ingest（写入 rag_service_collection，
+    供 ReAct agent 检索）；rag-service 失败仅记 warning 不阻塞本地结果。
     """
     knowledge_tool = request.app.state.knowledge_tool
+    rag_client = request.app.state.rag_client
+    settings = request.app.state.settings
 
     if knowledge_tool is None:
         raise HTTPException(
@@ -584,10 +589,28 @@ async def upload_knowledge(
             detail=f"知识库文档上传失败: {e}",
         ) from e
 
+    rag_status = "skipped"
+    if rag_client is not None:
+        try:
+            await rag_client.ingest_text(
+                text=content,
+                collection=settings.rag_service_collection,
+                source=f"admin-upload:{title}",
+                category=category or "default",
+            )
+            rag_status = "ok"
+        except RagServiceUnavailable as e:
+            logger.warning(f"rag-service ingest 失败，仅本地写入: {e}")
+            rag_status = "failed"
+
     return {
         "status": "ok",
         "chunks_added": chunk_count,
-        "message": f"文档「{title}」已上传，共 {chunk_count} 个分块",
+        "rag_service_status": rag_status,
+        "message": (
+            f"文档「{title}」已上传，共 {chunk_count} 个分块"
+            f"（rag-service: {rag_status}）"
+        ),
     }
 
 
