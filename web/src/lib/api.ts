@@ -208,6 +208,12 @@ export const api = {
     request<PromptDiffResponse>(
       `/admin/prompts/${agentName}/diff?from=${fromVersion}&to=${toVersion}`,
     ),
+  reloadActivePrompts: () =>
+    request<{
+      reloaded: Record<string, number>
+      skipped: string[]
+      message: string
+    }>('/admin/prompts/reload', { method: 'POST' }),
 
   // D-05 Agent 调用统计
   getAgentStats: (days: number = 7) =>

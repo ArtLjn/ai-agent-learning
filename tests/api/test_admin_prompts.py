@@ -353,3 +353,167 @@ async def test_db_create_prompt_version_assigns_sequential_version(
     v2 = await db.create_prompt_version("classify", "t2")
     v3 = await db.create_prompt_version("classify", "t3")
     assert (v1["version"], v2["version"], v3["version"]) == (1, 2, 3)
+
+
+# ============================================================
+# 热重载：POST /api/admin/prompts/reload
+# ============================================================
+
+
+class _StubAgent:
+    """最小化的 Agent 替身，仅实现 set_prompt_override。"""
+
+    def __init__(self) -> None:
+        self.override: str | None = None
+
+    def set_prompt_override(self, template: str | None) -> None:
+        self.override = template
+
+
+def _attach_stub_agents(app: FastAPI) -> dict[str, _StubAgent]:
+    """给 app.state 挂上 5 个 stub agent，返回 dict 供测试断言。"""
+    stubs = {
+        "intent": _StubAgent(),
+        "classify": _StubAgent(),
+        "process": _StubAgent(),
+        "review": _StubAgent(),
+        "coordinator": _StubAgent(),
+    }
+    app.state.ticket_intent_agent = stubs["intent"]
+    app.state.classifier = stubs["classify"]
+    app.state.processor = stubs["process"]
+    app.state.reviewer = stubs["review"]
+    app.state.coordinator = stubs["coordinator"]
+    return stubs
+
+
+def test_reload_injects_active_prompt_into_agents(
+    client: TestClient, app: FastAPI
+) -> None:
+    """新建 v2 + activate → POST /reload → 5 个 stub agent.override 都被刷新。"""
+    admin = _register(client, "theadmin")
+    _promote_to_admin(client, app, admin["user_id"])
+    stubs = _attach_stub_agents(app)
+
+    # 给 classify 和 review 各建一个版本（自动 activate）
+    client.post(
+        "/api/admin/prompts/classify/versions",
+        json={"template": "classify v1", "activate": True},
+    )
+    client.post(
+        "/api/admin/prompts/review/versions",
+        json={"template": "review v1", "activate": True},
+    )
+
+    resp = client.post("/api/admin/prompts/reload")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    # classify 和 review 应该被 reload
+    assert body["reloaded"]["classify"] == 1
+    assert body["reloaded"]["review"] == 1
+    # stub 的 override 应该被设为对应 template
+    assert stubs["classify"].override == "classify v1"
+    assert stubs["review"].override == "review v1"
+    # intent/process/coordinator 无 active 版本，应该在 skipped 里且 override 为 None
+    assert "intent" in body["skipped"]
+    assert "process" in body["skipped"]
+    assert "coordinator" in body["skipped"]
+    assert stubs["intent"].override is None
+
+
+def test_reload_picks_up_newly_activated_version(
+    client: TestClient, app: FastAPI
+) -> None:
+    """激活 v2 后 reload → agent.override 切换到 v2 template。"""
+    admin = _register(client, "theadmin")
+    _promote_to_admin(client, app, admin["user_id"])
+    stubs = _attach_stub_agents(app)
+
+    # 建 v1（active）
+    client.post(
+        "/api/admin/prompts/classify/versions",
+        json={"template": "v1 template", "activate": True},
+    )
+    client.post("/api/admin/prompts/reload")
+    assert stubs["classify"].override == "v1 template"
+
+    # 建 v2（自动 activate，v1 失活）
+    client.post(
+        "/api/admin/prompts/classify/versions",
+        json={"template": "v2 template", "activate": True},
+    )
+    # 不 reload 之前 agent.override 还是 v1（模拟 lifespan 已经过去）
+    assert stubs["classify"].override == "v1 template"
+
+    # reload 后切换到 v2
+    resp = client.post("/api/admin/prompts/reload")
+    assert resp.status_code == 200
+    assert resp.json()["reloaded"]["classify"] == 2
+    assert stubs["classify"].override == "v2 template"
+
+
+def test_reload_clears_override_when_no_active(
+    client: TestClient, app: FastAPI
+) -> None:
+    """active 被全部清掉后 reload → agent.override 还原为 None（代码默认）。"""
+    admin = _register(client, "theadmin")
+    _promote_to_admin(client, app, admin["user_id"])
+    stubs = _attach_stub_agents(app)
+
+    # 建 v1（active）→ reload 注入
+    client.post(
+        "/api/admin/prompts/classify/versions",
+        json={"template": "v1 template", "activate": True},
+    )
+    client.post("/api/admin/prompts/reload")
+    assert stubs["classify"].override == "v1 template"
+
+    # 直接 DB 操作：把 is_active 改成 false（模拟外部干预清掉 active）
+    client.portal.call(
+        app.state.db_manager.activate_prompt_version, "classify", 999  # 不存在，无副作用
+    )
+    # 实际清掉需要直接 SQL；这里通过 _session 改 is_active
+    import asyncio
+    async def _deactivate():
+        async with app.state.db_manager._session() as session:
+            from src.multi_agent_system.models.db import PromptVersionORM
+            from sqlalchemy import update
+            await session.execute(
+                update(PromptVersionORM)
+                .where(PromptVersionORM.agent_name == "classify")
+                .values(is_active=False)
+            )
+            await session.commit()
+    client.portal.call(_deactivate)
+
+    resp = client.post("/api/admin/prompts/reload")
+    assert resp.status_code == 200
+    assert "classify" in resp.json()["skipped"]
+    # override 被显式清回 None
+    assert stubs["classify"].override is None
+
+
+def test_reload_unauthenticated_returns_401(client: TestClient) -> None:
+    _logout(client)
+    resp = client.post("/api/admin/prompts/reload")
+    assert resp.status_code == 401
+
+
+def test_reload_user_role_returns_403(client: TestClient) -> None:
+    """user 角色（非 admin/developer）不能 reload。"""
+    _register(client, "normaluser")
+    resp = client.post("/api/admin/prompts/reload")
+    assert resp.status_code == 403
+
+
+def test_reload_developer_role_returns_200(
+    client: TestClient, app: FastAPI
+) -> None:
+    """developer 也能 reload。"""
+    dev = _register(client, "dev1")
+    _promote_to_admin(client, app, dev["user_id"])
+    client.portal.call(app.state.db_manager.update_user_role, dev["user_id"], "developer")
+    _relogin(client, "dev1")
+
+    resp = client.post("/api/admin/prompts/reload")
+    assert resp.status_code == 200

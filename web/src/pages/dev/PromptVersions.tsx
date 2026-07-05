@@ -12,8 +12,9 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Sparkles, FileText, GitCompare } from 'lucide-react'
+import { Loader2, Sparkles, FileText, GitCompare, RefreshCw } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
+import { toast } from '@/lib/toast'
 import type { PromptAgentName, PromptVersion } from '@/types'
 
 const AGENTS: { id: PromptAgentName; label: string; description: string }[] = [
@@ -43,6 +44,9 @@ export function PromptVersions() {
   const [diffText, setDiffText] = useState('')
   const [diffLoading, setDiffLoading] = useState(false)
 
+  // 热重载
+  const [reloading, setReloading] = useState(false)
+
   async function loadVersions(target: PromptAgentName) {
     setLoading(true)
     setError(null)
@@ -61,6 +65,27 @@ export function PromptVersions() {
     loadVersions(agent)
   }, [agent])
 
+  async function reloadActive(messageOnSuccess: string) {
+    setReloading(true)
+    try {
+      const resp = await api.reloadActivePrompts()
+      const reloadedCount = Object.keys(resp.reloaded).length
+      toast.success(
+        'Prompt 已热重载',
+        `${messageOnSuccess}（生效 ${reloadedCount} 个 Agent${
+          resp.skipped.length ? `，跳过 ${resp.skipped.length} 个` : ''
+        }）`,
+      )
+    } catch (e) {
+      toast.error(
+        '热重载失败',
+        e instanceof ApiError ? e.detail || e.message : String(e),
+      )
+    } finally {
+      setReloading(false)
+    }
+  }
+
   async function submitCreate() {
     if (!newTemplate.trim()) return
     setCreating(true)
@@ -75,6 +100,8 @@ export function PromptVersions() {
       setNewTemplate('')
       setNewNote('')
       await loadVersions(agent)
+      // 新建并自动 activate → 热重载让新 prompt 立刻生效
+      await reloadActive(`新版本已激活并热重载到 ${agent}`)
     } catch (e) {
       setError(e instanceof ApiError ? e.detail || e.message : String(e))
     } finally {
@@ -87,6 +114,8 @@ export function PromptVersions() {
     try {
       await api.activatePromptVersion(agent, version)
       await loadVersions(agent)
+      // 激活后热重载
+      await reloadActive(`${agent} v${version} 已激活并热重载`)
     } catch (e) {
       setError(e instanceof ApiError ? e.detail || e.message : String(e))
     }
@@ -124,10 +153,24 @@ export function PromptVersions() {
             5 个 Agent 的 system prompt 多版本管理 + 激活切换
           </p>
         </div>
-        <Button onClick={() => setCreateOpen(true)} disabled={loading}>
-          <FileText className="w-4 h-4 mr-1.5" />
-          新建版本
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => reloadActive('已手动热重载 active 版本')}
+            disabled={reloading || loading}
+          >
+            {reloading ? (
+              <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4 mr-1.5" />
+            )}
+            热重载
+          </Button>
+          <Button onClick={() => setCreateOpen(true)} disabled={loading}>
+            <FileText className="w-4 h-4 mr-1.5" />
+            新建版本
+          </Button>
+        </div>
       </div>
 
       <Tabs value={agent} onValueChange={(v) => setAgent(v as PromptAgentName)}>

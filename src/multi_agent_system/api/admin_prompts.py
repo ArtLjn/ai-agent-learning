@@ -9,6 +9,7 @@
 - POST /api/admin/prompts/{agent_name}/versions/{version}/activate: 激活
 - GET  /api/admin/prompts/{agent_name}/diff?from=v1&to=v2: difflib unified diff
 - GET  /api/admin/prompts/{agent_name}/active: 当前激活版本
+- POST /api/admin/prompts/reload: 热重载（不用重启服务即可让 active 版本生效）
 """
 
 import difflib
@@ -152,4 +153,65 @@ async def diff_versions(
         "to_version": to_version,
         "diff": "\n".join(diff_lines),
         "has_diff": len(diff_lines) > 0,
+    }
+
+
+# ============================================================
+# 热重载：调用 load_active_prompts 把 DB active 重新注入到运行中的 Agent
+# ============================================================
+
+
+def _collect_agents(app_state: Any) -> dict[str, Any]:
+    """从 app.state 收集 5 个 Agent 实例（键为 ALLOWED_AGENT_NAMES）。"""
+    return {
+        "intent": getattr(app_state, "ticket_intent_agent", None),
+        "classify": getattr(app_state, "classifier", None),
+        "process": getattr(app_state, "processor", None),
+        "review": getattr(app_state, "reviewer", None),
+        "coordinator": getattr(app_state, "coordinator", None),
+    }
+
+
+@router.post("/reload")
+async def reload_active_prompts(request: Request) -> dict[str, Any]:
+    """热重载：重新读取 prompt_versions 表 active 版本注入到运行中的 Agent。
+
+    使用场景：UI 上新建/激活新版本后调用此端点，无需重启服务即可让新 prompt
+    在下一次 LLM 调用时生效。
+
+    Returns:
+        reloaded: dict[agent_name, version] — 本次成功注入的版本号
+        skipped: list[agent_name] — 缺失 Agent 实例或无 active 版本的 Agent
+    """
+    from src.multi_agent_system.core.prompt_loader import load_active_prompts
+
+    db_manager = request.app.state.db_manager
+    agents = _collect_agents(request.app.state)
+
+    # 先记录每个 agent 当前的 override 状态，用于判断是否真的变了
+    reloaded: dict[str, int] = {}
+    skipped: list[str] = []
+
+    for agent_name in ALLOWED_AGENT_NAMES:
+        agent = agents.get(agent_name)
+        if agent is None:
+            skipped.append(agent_name)
+            continue
+        active = await db_manager.get_active_prompt(agent_name)
+        if active is None:
+            # 无 active → 显式还原为代码默认（覆盖之前的 override）
+            if hasattr(agent, "set_prompt_override"):
+                agent.set_prompt_override(None)
+            skipped.append(agent_name)
+            continue
+        agent.set_prompt_override(active["template"])
+        reloaded[agent_name] = active["version"]
+
+    return {
+        "reloaded": reloaded,
+        "skipped": skipped,
+        "message": (
+            f"已热重载 {len(reloaded)} 个 Agent 的 active prompt"
+            + (f"，{len(skipped)} 个跳过（无实例或无 active）" if skipped else "")
+        ),
     }
