@@ -226,6 +226,165 @@ class RagClient:
             form_data["category"] = category
         return await self._post_with_retry("/ingest", data=form_data)
 
+    async def ingest_file(
+        self,
+        file_bytes: bytes,
+        filename: str,
+        collection: str,
+        source: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """调用 rag-service /ingest（file 模式），上传 PDF/MD/TXT 文件入库。
+
+        Args:
+            file_bytes: 文件二进制内容
+            filename: 文件名（含扩展名，用于文件类型探测）
+            collection: 目标 collection
+            source: 文档来源标识（可选，缺省回退到 filename）
+            category: 业务类别（可选）
+
+        Returns:
+            rag-service data 字段，含 doc_id / chunk_count / collection / action。
+
+        Raises:
+            RagServiceUnavailable: 网络异常 / 5xx / 超时
+        """
+        url = f"{self._base_url}/ingest"
+        headers = self._build_headers()
+        # 文件类型按扩展名映射（rag-service 也会探测，但显式传更稳）
+        ext_to_type = {
+            ".pdf": "application/pdf",
+            ".md": "text/markdown",
+            ".markdown": "text/markdown",
+            ".txt": "text/plain",
+        }
+        ext = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        content_type = ext_to_type.get(ext, "application/octet-stream")
+        files = {"file": (filename, file_bytes, content_type)}
+        data: dict[str, str] = {"collection": collection}
+        if source:
+            data["source"] = source
+        if category:
+            data["category"] = category
+
+        last_exc: Exception | None = None
+        attempts = self._retry + 1
+        body: dict[str, Any] | None = None
+        for attempt in range(attempts):
+            try:
+                response = await self._http.post(url, files=files, data=data, headers=headers)
+                response.raise_for_status()
+                body = response.json()
+            except httpx.HTTPStatusError as e:
+                raise RagServiceUnavailable(
+                    f"rag-service /ingest returned {e.response.status_code}"
+                ) from e
+            except (httpx.HTTPError, ValueError) as e:
+                last_exc = e
+                if attempt < attempts - 1:
+                    logger.warning(
+                        f"[RagClient] /ingest attempt {attempt + 1} failed: {e}, retrying"
+                    )
+                    await asyncio.sleep(0.5)
+                    continue
+                raise RagServiceUnavailable(
+                    f"rag-service /ingest unreachable after {attempts} attempts: {e}"
+                ) from e
+
+        if body.get("code") != "OK":
+            raise RagServiceUnavailable(
+                f"rag-service /ingest returned code={body.get('code')} "
+                f"message={body.get('message')}"
+            )
+        result_data = body.get("data")
+        if not isinstance(result_data, dict):
+            raise RagServiceUnavailable(
+                f"rag-service /ingest returned non-dict data: {type(result_data).__name__}"
+            )
+        return result_data
+
+    async def list_documents(
+        self,
+        collection: str,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        """调用 GET /collections/{collection}/documents 拉文档元数据列表。
+
+        Args:
+            collection: 目标 collection
+            page: 页码（1-based）
+            page_size: 每页文档数（rag-service 限制 1-100）
+
+        Returns:
+            rag-service data 字段，含 total / page / page_size / documents[]。
+            documents 各项为 DocumentRecord（doc_id/source/category/chunk_count/...）。
+
+        Raises:
+            RagServiceUnavailable: 网络异常 / 5xx / 超时
+        """
+        url = f"{self._base_url}/collections/{collection}/documents"
+        headers = self._build_headers()
+        params = {"page": page, "page_size": page_size}
+        try:
+            response = await self._http.get(url, params=params, headers=headers)
+            response.raise_for_status()
+            body = response.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise RagServiceUnavailable(f"rag-service list_documents failed: {e}") from e
+
+        if body.get("code") != "OK":
+            raise RagServiceUnavailable(
+                f"rag-service list_documents returned code={body.get('code')} "
+                f"message={body.get('message')}"
+            )
+        result_data = body.get("data")
+        if not isinstance(result_data, dict):
+            raise RagServiceUnavailable(
+                f"rag-service list_documents returned non-dict data: {type(result_data).__name__}"
+            )
+        return result_data
+
+    async def delete_document(
+        self,
+        collection: str,
+        doc_id: str,
+    ) -> dict[str, Any]:
+        """调用 DELETE /collections/{collection}/documents/{doc_id} 删文档。
+
+        rag-service 会同时清 Qdrant points 与 SQLite metadata。
+
+        Args:
+            collection: 目标 collection
+            doc_id: 文档 ID
+
+        Returns:
+            rag-service data 字段，含 doc_id / collection / metadata_removed / points_removed。
+
+        Raises:
+            RagServiceUnavailable: 网络异常 / 5xx / 超时
+        """
+        url = f"{self._base_url}/collections/{collection}/documents/{doc_id}"
+        headers = self._build_headers()
+        try:
+            response = await self._http.delete(url, headers=headers)
+            response.raise_for_status()
+            body = response.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise RagServiceUnavailable(f"rag-service delete_document failed: {e}") from e
+
+        if body.get("code") != "OK":
+            raise RagServiceUnavailable(
+                f"rag-service delete_document returned code={body.get('code')} "
+                f"message={body.get('message')}"
+            )
+        result_data = body.get("data")
+        if not isinstance(result_data, dict):
+            raise RagServiceUnavailable(
+                f"rag-service delete_document returned non-dict data: {type(result_data).__name__}"
+            )
+        return result_data
+
     async def _post_with_retry(
         self,
         path: str,

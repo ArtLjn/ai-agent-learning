@@ -60,8 +60,11 @@ function handleUnauthorized() {
 }
 
 export async function request<T>(path: string, opts?: RequestInit): Promise<T> {
+  // FormData 不显式设 Content-Type，让浏览器自动加 multipart boundary
+  const isFormData = opts?.body instanceof FormData
+  const headers: HeadersInit = isFormData ? {} : { 'Content-Type': 'application/json' }
   const res = await fetch(`${BASE_URL}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     ...opts,
   })
   if (res.status === 401) {
@@ -162,13 +165,26 @@ export const api = {
   // Analytics
   getAnalytics: () => request<Analytics>('/analytics'),
 
-  // Knowledge
-  getKnowledge: (params?: Record<string, string>) => {
-    const qs = params ? '?' + new URLSearchParams(params).toString() : ''
-    return request<KnowledgeListResponse>(`/knowledge${qs}`)
+  // Knowledge（纯代理 rag-service）
+  getKnowledge: (page = 1, pageSize = 50) => {
+    const qs = new URLSearchParams({
+      page: String(page),
+      page_size: String(pageSize),
+    }).toString()
+    return request<KnowledgeListResponse>(`/knowledge?${qs}`)
   },
-  uploadKnowledge: (data: { title: string; content: string; category?: string }) =>
-    request<ApiRecord>('/knowledge', { method: 'POST', body: JSON.stringify(data) }),
+  uploadKnowledgeText: (data: { title?: string; content: string; category?: string }) =>
+    request<ApiRecord>('/knowledge', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  uploadKnowledgeFile: (formData: FormData) =>
+    request<ApiRecord>('/knowledge', {
+      method: 'POST',
+      body: formData,
+    }),
+  deleteKnowledge: (docId: string) =>
+    request<ApiRecord>(`/knowledge/${docId}`, { method: 'DELETE' }),
 
   // Settings
   getSettings: () => request<SystemSettings>('/settings'),

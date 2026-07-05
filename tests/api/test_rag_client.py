@@ -356,6 +356,205 @@ class TestRagClientIngestText:
         await client.close()
 
 
+class TestRagClientIngestFile:
+    """/ingest file 模式测试（admin 文件上传）。"""
+
+    @pytest.mark.asyncio
+    async def test_ingest_file_posts_multipart_with_file_bytes(self) -> None:
+        """ingest_file 用 multipart files + data 提交，带 X-API-Key。"""
+        client = RagClient(
+            base_url="http://rag-service:8001",
+            api_key="test-secret-key",
+        )
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(
+            200,
+            {
+                "code": "OK",
+                "message": "ok",
+                "data": {
+                    "doc_id": "pdf12345",
+                    "chunk_count": 8,
+                    "collection": "ticket_knowledge",
+                    "action": "created",
+                },
+            },
+        )
+        client._client = mock_http
+
+        pdf_bytes = b"%PDF-1.4 fake pdf content"
+        result = await client.ingest_file(
+            file_bytes=pdf_bytes,
+            filename="manual.pdf",
+            collection="ticket_knowledge",
+            source="用户手册",
+            category="technical",
+        )
+
+        assert result["doc_id"] == "pdf12345"
+        assert result["chunk_count"] == 8
+
+        # 验证 POST 调用：files 字段含 filename + bytes + content_type
+        assert mock_http.post.called
+        _, kwargs = mock_http.post.call_args
+        files = kwargs.get("files") or {}
+        assert "file" in files
+        filename, file_bytes, content_type = files["file"]
+        assert filename == "manual.pdf"
+        assert file_bytes == pdf_bytes
+        assert content_type == "application/pdf"
+        # data 字段含 collection/source/category
+        data = kwargs.get("data") or {}
+        assert data["collection"] == "ticket_knowledge"
+        assert data["source"] == "用户手册"
+        assert data["category"] == "technical"
+        # 带 X-API-Key
+        headers = kwargs.get("headers") or {}
+        assert headers.get("X-API-Key") == "test-secret-key"
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_ingest_file_5xx_raises_rag_service_unavailable(self) -> None:
+        """5xx 响应抛 RagServiceUnavailable。"""
+        client = RagClient(base_url="http://rag-service:8001", retry=0)
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(422, {"detail": "PARSE_FAILED"})
+        client._client = mock_http
+
+        with pytest.raises(RagServiceUnavailable, match="422"):
+            await client.ingest_file(
+                file_bytes=b"x",
+                filename="x.txt",
+                collection="ticket_knowledge",
+            )
+        await client.close()
+
+
+class TestRagClientListDocuments:
+    """GET /collections/{name}/documents 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_list_documents_passes_query_params(self) -> None:
+        """list_documents 把 page/page_size 作为 query 参数转发。"""
+        client = RagClient(
+            base_url="http://rag-service:8001",
+            api_key="test-key",
+        )
+        mock_http = AsyncMock()
+        mock_http.get.return_value = _mock_response(
+            200,
+            {
+                "code": "OK",
+                "message": "ok",
+                "data": {
+                    "total": 91,
+                    "page": 2,
+                    "page_size": 20,
+                    "documents": [
+                        {
+                            "doc_id": "abc12345",
+                            "collection": "ticket_knowledge",
+                            "source": "manual.pdf",
+                            "category": "technical",
+                            "chunk_count": 5,
+                            "content_hash": "deadbeef",
+                            "extra": {},
+                            "ingested_at": "2026-07-05T10:00:00Z",
+                        }
+                    ],
+                },
+            },
+        )
+        client._client = mock_http
+
+        result = await client.list_documents(
+            collection="ticket_knowledge", page=2, page_size=20
+        )
+
+        assert result["total"] == 91
+        assert result["page"] == 2
+        assert result["documents"][0]["doc_id"] == "abc12345"
+
+        # 验证 GET 调用 URL + params + headers
+        assert mock_http.get.called
+        args, kwargs = mock_http.get.call_args
+        url = args[0] if args else kwargs.get("url")
+        assert "/collections/ticket_knowledge/documents" in url
+        params = kwargs.get("params") or {}
+        assert params["page"] == 2
+        assert params["page_size"] == 20
+        headers = kwargs.get("headers") or {}
+        assert headers.get("X-API-Key") == "test-key"
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_list_documents_unreachable_raises(self) -> None:
+        """网络异常抛 RagServiceUnavailable。"""
+        client = RagClient(base_url="http://rag-service:8001")
+        mock_http = AsyncMock()
+        mock_http.get.side_effect = httpx.ConnectError("refused")
+        client._client = mock_http
+
+        with pytest.raises(RagServiceUnavailable):
+            await client.list_documents(collection="ticket_knowledge")
+        await client.close()
+
+
+class TestRagClientDeleteDocument:
+    """DELETE /collections/{name}/documents/{doc_id} 测试。"""
+
+    @pytest.mark.asyncio
+    async def test_delete_document_calls_delete_endpoint(self) -> None:
+        """delete_document 调 DELETE 接口，URL 含 collection + doc_id。"""
+        client = RagClient(
+            base_url="http://rag-service:8001",
+            api_key="test-key",
+        )
+        mock_http = AsyncMock()
+        mock_http.delete.return_value = _mock_response(
+            200,
+            {
+                "code": "OK",
+                "message": "ok",
+                "data": {
+                    "doc_id": "abc12345",
+                    "collection": "ticket_knowledge",
+                    "metadata_removed": 1,
+                    "points_removed": 5,
+                },
+            },
+        )
+        client._client = mock_http
+
+        result = await client.delete_document(
+            collection="ticket_knowledge", doc_id="abc12345"
+        )
+
+        assert result["doc_id"] == "abc12345"
+        assert result["points_removed"] == 5
+
+        # 验证 DELETE 调用
+        assert mock_http.delete.called
+        args, kwargs = mock_http.delete.call_args
+        url = args[0] if args else kwargs.get("url")
+        assert "/collections/ticket_knowledge/documents/abc12345" in url
+        headers = kwargs.get("headers") or {}
+        assert headers.get("X-API-Key") == "test-key"
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_delete_document_unreachable_raises(self) -> None:
+        """网络异常抛 RagServiceUnavailable。"""
+        client = RagClient(base_url="http://rag-service:8001")
+        mock_http = AsyncMock()
+        mock_http.delete.side_effect = httpx.ConnectError("refused")
+        client._client = mock_http
+
+        with pytest.raises(RagServiceUnavailable):
+            await client.delete_document(collection="ticket_knowledge", doc_id="x")
+        await client.close()
+
+
 class TestReActProcessorDegradeOnRagFailure:
     """ReActProcessorAgent 在 RagClient 失败时降级到无知识增强路径。"""
 

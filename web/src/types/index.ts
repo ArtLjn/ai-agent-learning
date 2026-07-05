@@ -214,34 +214,37 @@ export interface DailyStat {
   created?: number
 }
 
-// 知识库
-export interface KnowledgeUploadRequest {
-  title: string
+// 知识库（v2 纯对齐 rag-service /collections/{name}/documents）
+export interface KnowledgeTextUploadRequest {
+  title?: string
   content: string
   category?: string
 }
 
-export interface KnowledgeChunk {
-  index: number
-  content: string
-  point_id: string
-}
-
 export interface KnowledgeDocument {
-  id: string
-  title: string
+  doc_id: string
+  collection: string
+  source: string
   category: string
-  source?: string
-  content: string
-  preview: string
   chunk_count: number
-  chunks: KnowledgeChunk[]
+  content_hash?: string
+  extra?: Record<string, unknown>
+  ingested_at: string
 }
 
 export interface KnowledgeListResponse {
+  total: number
+  page: number
+  page_size: number
   documents: KnowledgeDocument[]
-  count: number
-  next_offset: string | null
+}
+
+export interface KnowledgeIngestResult {
+  status: string
+  doc_id: string
+  chunk_count: number
+  collection: string
+  action: string
 }
 
 export interface TicketListParams {

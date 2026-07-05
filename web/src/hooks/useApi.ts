@@ -80,19 +80,35 @@ export function useAnalytics() {
   })
 }
 
-// Knowledge
-export function useKnowledge(params?: Record<string, string>) {
+// Knowledge（纯代理 rag-service）
+export function useKnowledge(page = 1, pageSize = 50) {
   return useQuery({
-    queryKey: ['knowledge', params],
-    queryFn: () => api.getKnowledge(params),
+    queryKey: ['knowledge', page, pageSize],
+    queryFn: () => api.getKnowledge(page, pageSize),
   })
 }
 
-export function useUploadKnowledge() {
+export function useUploadKnowledgeText() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { title: string; content: string; category?: string }) =>
-      api.uploadKnowledge(data),
+    mutationFn: (data: { title?: string; content: string; category?: string }) =>
+      api.uploadKnowledgeText(data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledge'] }),
+  })
+}
+
+export function useUploadKnowledgeFile() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (formData: FormData) => api.uploadKnowledgeFile(formData),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledge'] }),
+  })
+}
+
+export function useDeleteKnowledge() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (docId: string) => api.deleteKnowledge(docId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledge'] }),
   })
 }

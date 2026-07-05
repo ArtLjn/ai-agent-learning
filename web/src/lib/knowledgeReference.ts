@@ -23,17 +23,12 @@ export function filterKnowledgeDocuments(
   return documents.filter((doc) => {
     if (!keyword && !category) return true
 
-    const title = normalizeText(doc.title)
+    const source = normalizeText(doc.source)
     const docCategory = normalizeText(doc.category)
-    const haystack = normalizeText([
-      doc.title,
-      doc.category,
-      doc.preview,
-      doc.content,
-    ].filter(Boolean).join(' '))
+    const haystack = normalizeText([doc.source, doc.category].filter(Boolean).join(' '))
 
     if (keyword && haystack.includes(keyword)) return true
-    if (keyword && title && keyword.includes(title)) return true
+    if (keyword && source && keyword.includes(source)) return true
     if (category && docCategory && (category.includes(docCategory) || docCategory.includes(category))) {
       return true
     }
