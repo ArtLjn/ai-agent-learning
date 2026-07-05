@@ -519,99 +519,139 @@ async def list_tickets(
 @router.get("/knowledge", response_model=dict)
 async def list_knowledge(
     request: Request,
-    limit: int = Query(default=50, ge=1, le=200, description="最多读取的分块数量"),
-    offset: str | None = Query(default=None, description="Qdrant scroll 偏移量"),
+    page: int = Query(default=1, ge=1, description="页码（1-based）"),
+    page_size: int = Query(default=50, ge=1, le=100, description="每页文档数"),
     _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
-    """查看知识库中已有文档列表和内容。"""
-    knowledge_tool = request.app.state.knowledge_tool
+    """列出 rag-service 中 ticket_knowledge collection 的文档元数据。
 
-    if knowledge_tool is None:
-        raise HTTPException(
-            status_code=503,
-            detail="知识库服务不可用（Qdrant 未连接）",
-        )
+    响应字段：{total, page, page_size, documents[]}。
+    documents 各项含 doc_id/source/category/chunk_count/ingested_at 等。
+    """
+    rag_client = request.app.state.rag_client
+    settings = request.app.state.settings
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
 
     try:
-        return knowledge_tool.list_documents(limit=limit, offset=offset)
-    except Exception as e:
-        logger.error(f"知识库文档列表读取失败: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"知识库文档列表读取失败: {e}",
-        ) from e
+        return await rag_client.list_documents(
+            collection=settings.rag_service_collection,
+            page=page,
+            page_size=page_size,
+        )
+    except RagServiceUnavailable as e:
+        logger.warning(f"rag-service list_documents 失败: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
 
 @router.post("/knowledge", response_model=dict)
 async def upload_knowledge(
-    body: dict[str, Any],
     request: Request,
     _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
-    """上传文档到知识库（双写：本地 Qdrant + rag-service）。
+    """上传文档到 rag-service（纯代理，支持 text 与 file 两种模式）。
 
-    接收 JSON body，需包含 title、content，可选 category。
-    本地写入成功后异步调 rag-service /ingest（写入 rag_service_collection，
-    供 ReAct agent 检索）；rag-service 失败仅记 warning 不阻塞本地结果。
+    按 content-type 分发：
+    - application/json → text 模式：body 含 title/content/category，调 ingest_text
+    - multipart/form-data → file 模式：含 file 字段（PDF/MD/TXT），调 ingest_file
+
+    响应字段：{status, doc_id, chunk_count, collection, action}。
     """
-    knowledge_tool = request.app.state.knowledge_tool
+    rag_client = request.app.state.rag_client
+    settings = request.app.state.settings
+    collection = settings.rag_service_collection
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
+
+    content_type = request.headers.get("content-type", "")
+
+    if content_type.startswith("application/json"):
+        try:
+            body = await request.json()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=f"JSON 解析失败: {e}") from e
+
+        text = body.get("content") or ""
+        title = body.get("title") or "(无标题)"
+        category = body.get("category") or "default"
+
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="content 为必填字段")
+
+        try:
+            result = await rag_client.ingest_text(
+                text=text,
+                collection=collection,
+                source=f"admin-upload:{title}",
+                category=category,
+            )
+        except RagServiceUnavailable as e:
+            logger.warning(f"rag-service ingest_text 失败: {e}")
+            raise HTTPException(status_code=503, detail=str(e)) from e
+
+        return {"status": "ok", **result}
+
+    if content_type.startswith("multipart/form-data"):
+        try:
+            form = await request.form()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"form 解析失败: {e}") from e
+
+        upload_file = form.get("file")
+        title = form.get("title") or "(无标题)"
+        category = form.get("category") or "default"
+
+        if upload_file is None:
+            raise HTTPException(status_code=400, detail="file 字段为必填")
+
+        file_bytes = await upload_file.read()
+        filename = upload_file.filename or "upload"
+
+        try:
+            result = await rag_client.ingest_file(
+                file_bytes=file_bytes,
+                filename=filename,
+                collection=collection,
+                source=title,
+                category=category,
+            )
+        except RagServiceUnavailable as e:
+            logger.warning(f"rag-service ingest_file 失败: {e}")
+            raise HTTPException(status_code=503, detail=str(e)) from e
+
+        return {"status": "ok", **result}
+
+    raise HTTPException(
+        status_code=400,
+        detail=f"不支持的 content-type: {content_type}（仅 application/json 或 multipart/form-data）",
+    )
+
+
+@router.delete("/knowledge/{doc_id}", response_model=dict)
+async def delete_knowledge(
+    doc_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
+    """删除 rag-service 中指定 doc_id 的文档（Qdrant points + SQLite metadata）。"""
     rag_client = request.app.state.rag_client
     settings = request.app.state.settings
 
-    if knowledge_tool is None:
-        raise HTTPException(
-            status_code=503,
-            detail="知识库服务不可用（Qdrant 未连接）",
-        )
-
-    title = body.get("title", "")
-    content = body.get("content", "")
-    category = body.get("category")
-
-    if not title or not content:
-        raise HTTPException(
-            status_code=400,
-            detail="title 和 content 为必填字段",
-        )
-
-    document = {
-        "title": title,
-        "content": content,
-        "category": category,
-    }
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
 
     try:
-        chunk_count = knowledge_tool.add_documents([document])
-    except Exception as e:
-        logger.error(f"知识库文档上传失败: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"知识库文档上传失败: {e}",
-        ) from e
+        result = await rag_client.delete_document(
+            collection=settings.rag_service_collection,
+            doc_id=doc_id,
+        )
+    except RagServiceUnavailable as e:
+        logger.warning(f"rag-service delete_document 失败: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from e
 
-    rag_status = "skipped"
-    if rag_client is not None:
-        try:
-            await rag_client.ingest_text(
-                text=content,
-                collection=settings.rag_service_collection,
-                source=f"admin-upload:{title}",
-                category=category or "default",
-            )
-            rag_status = "ok"
-        except RagServiceUnavailable as e:
-            logger.warning(f"rag-service ingest 失败，仅本地写入: {e}")
-            rag_status = "failed"
-
-    return {
-        "status": "ok",
-        "chunks_added": chunk_count,
-        "rag_service_status": rag_status,
-        "message": (
-            f"文档「{title}」已上传，共 {chunk_count} 个分块"
-            f"（rag-service: {rag_status}）"
-        ),
-    }
+    return {"status": "ok", **result}
 
 
 # ============================================================

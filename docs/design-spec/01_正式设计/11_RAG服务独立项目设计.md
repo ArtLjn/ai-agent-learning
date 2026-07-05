@@ -522,25 +522,31 @@ volumes:
 - **禁止 hardcode**：生产 Key 不写入代码、测试或 git tracked 配置文件；仅通过环境变量或 `config.yaml`（已 gitignore）注入
 - **/health 例外**：rag-service 部署时 `/health` 公开（运维健康检查需要），但 RagClient 调 health 时也带 Key 以保持一致性（带 Key 调公开端点不影响结果）
 
-### 13.0.1 admin 知识库双写（过渡方案）
+### 13.0.1 admin 知识库纯对齐 rag-service
 
-主系统 admin 知识库管理页（`POST /api/knowledge`）采用**本地 Qdrant + rag-service 双写**策略：
+主系统 admin 知识库管理页（`/api/knowledge` 系列）**纯代理 rag-service**，不再写本地 Qdrant：
 
-| 写入目标 | collection | 用途 |
+| 主系统 endpoint | 代理到 rag-service | 说明 |
 | --- | --- | --- |
-| 主系统本地 Qdrant | `qdrant_collection`（默认 `knowledge_base`） | admin 页 list/detail 字段（content、chunks[]）展示 |
-| rag-service | `rag_service_collection`（默认 `ticket_knowledge`） | ReAct 工单 agent 通过 RagClient 检索 |
+| `GET /api/knowledge?page=&page_size=` | `GET /collections/{rag_service_collection}/documents` | 透传文档元数据列表 |
+| `POST /api/knowledge`（content-type=`application/json`） | `POST /ingest` text 模式 | 粘贴 markdown 文本入库 |
+| `POST /api/knowledge`（content-type=`multipart/form-data`） | `POST /ingest` file 模式 | PDF/MD/TXT 文件入库 |
+| `DELETE /api/knowledge/{doc_id}` | `DELETE /collections/{rag_service_collection}/documents/{doc_id}` | 同步清 Qdrant points + SQLite metadata |
 
-**双写时序**：
-1. `knowledge_tool.add_documents()` 写本地 Qdrant（成功后才进入第二步）
-2. `rag_client.ingest_text(collection=ticket_knowledge)` 调 rag-service `/ingest`（multipart form 模式）
-3. rag-service 失败仅记 warning 不阻塞本地结果，响应 `rag_service_status` 字段反映状态（`ok` / `failed` / `skipped`）
+**前端 UI**：
+- 上传 Card 用 Tabs 切换"粘贴文本"/"上传文件"两种模式
+- 列表只展示 rag-service 返回的元数据（doc_id / source / category / chunk_count / ingested_at），不再有"完整内容"和"分块明细"
+- 每条文档支持删除（Dialog 确认 → DELETE 接口）
+- 详情面板已取消（rag-service 不返回 content/chunks，没有可显示的详情内容）
 
-**为什么需要双写**：rag-service `/collections/{name}/documents` 列表 API 只暴露 doc_id/chunk_count/source/category/ingested_at 等元数据，不返回完整 content 和 chunks 明细，不足以支撑 admin 详情页字段。本地副本保前端 UI 字段不变，rag-service 副本保 agent 检索。
+**本地 Qdrant 的命运**：
+- `KnowledgeSearchTool`（`src/multi_agent_system/tools/knowledge_search.py`）保留作为 ReAct agent 的降级路径（rag-service 不可用时的关键词搜索 fallback）
+- 本地 `qdrant_collection`（默认 `knowledge_base`）中已有的 91 篇旧文档保留在原地，但 admin 页不再展示
+- `/api/tickets/mock-question` 仍从本地 Qdrant 抽取素材生成 mock 工单
 
-**ReAct agent 检索路径**：[`processor_react.py:397`](../../../src/multi_agent_system/agents/processor_react.py) `_prefetch_via_rag_client` 调 `rag_client.retrieve(collection=settings.rag_service_collection)`，与 admin 双写目标一致，确保 admin 上传的文档能被工单 agent 命中。
+**字段降级说明**：rag-service `DocumentRecord` 只暴露 `doc_id/source/category/chunk_count/content_hash/extra/ingested_at`，没有 content 与 chunks。前端用 `source` 替代标题展示，去掉详情面板是 API 能力限制下的合理降级。若 rag-service 未来提供 `GET /documents/{doc_id}` 返回完整 content/chunks 的 endpoint，可恢复详情视图。
 
-**过渡属性**：本方案是 rag-service 当前 API 能力下的折衷。若 rag-service 未来提供 `GET /documents/{doc_id}` 返回完整 content/chunks 的 endpoint，可下掉本地副本，admin 页直接消费 rag-service 单一数据源。
+**ReAct agent 检索路径**：[`processor_react.py:397`](../../../src/multi_agent_system/agents/processor_react.py) `_prefetch_via_rag_client` 调 `rag_client.retrieve(collection=settings.rag_service_collection)`，与 admin 写入目标一致，admin 上传的文档能被工单 agent 命中。
 
 ### 13.1 调用约定
 
