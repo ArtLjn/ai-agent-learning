@@ -394,7 +394,7 @@ class ReActProcessorAgent:
         失败时（RagServiceUnavailable）返回空字符串，让上层降级到 search_knowledge。
         """
         settings = Settings()
-        collection = settings.qdrant_collection or "default"
+        collection = settings.rag_service_collection or "default"
         retrieve_top_k = max(settings.qdrant_top_k, 5)
         rerank_top_k = settings.qdrant_top_k
 

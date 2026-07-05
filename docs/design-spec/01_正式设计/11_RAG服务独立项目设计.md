@@ -522,6 +522,26 @@ volumes:
 - **禁止 hardcode**：生产 Key 不写入代码、测试或 git tracked 配置文件；仅通过环境变量或 `config.yaml`（已 gitignore）注入
 - **/health 例外**：rag-service 部署时 `/health` 公开（运维健康检查需要），但 RagClient 调 health 时也带 Key 以保持一致性（带 Key 调公开端点不影响结果）
 
+### 13.0.1 admin 知识库双写（过渡方案）
+
+主系统 admin 知识库管理页（`POST /api/knowledge`）采用**本地 Qdrant + rag-service 双写**策略：
+
+| 写入目标 | collection | 用途 |
+| --- | --- | --- |
+| 主系统本地 Qdrant | `qdrant_collection`（默认 `knowledge_base`） | admin 页 list/detail 字段（content、chunks[]）展示 |
+| rag-service | `rag_service_collection`（默认 `ticket_knowledge`） | ReAct 工单 agent 通过 RagClient 检索 |
+
+**双写时序**：
+1. `knowledge_tool.add_documents()` 写本地 Qdrant（成功后才进入第二步）
+2. `rag_client.ingest_text(collection=ticket_knowledge)` 调 rag-service `/ingest`（multipart form 模式）
+3. rag-service 失败仅记 warning 不阻塞本地结果，响应 `rag_service_status` 字段反映状态（`ok` / `failed` / `skipped`）
+
+**为什么需要双写**：rag-service `/collections/{name}/documents` 列表 API 只暴露 doc_id/chunk_count/source/category/ingested_at 等元数据，不返回完整 content 和 chunks 明细，不足以支撑 admin 详情页字段。本地副本保前端 UI 字段不变，rag-service 副本保 agent 检索。
+
+**ReAct agent 检索路径**：[`processor_react.py:397`](../../../src/multi_agent_system/agents/processor_react.py) `_prefetch_via_rag_client` 调 `rag_client.retrieve(collection=settings.rag_service_collection)`，与 admin 双写目标一致，确保 admin 上传的文档能被工单 agent 命中。
+
+**过渡属性**：本方案是 rag-service 当前 API 能力下的折衷。若 rag-service 未来提供 `GET /documents/{doc_id}` 返回完整 content/chunks 的 endpoint，可下掉本地副本，admin 页直接消费 rag-service 单一数据源。
+
 ### 13.1 调用约定
 
 | 决策点 | 实现 |

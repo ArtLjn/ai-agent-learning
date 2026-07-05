@@ -292,6 +292,70 @@ class TestRagClientApiKeyHeader:
         await client.close()
 
 
+class TestRagClientIngestText:
+    """/ingest text 模式测试（admin 知识库双写目标）。"""
+
+    @pytest.mark.asyncio
+    async def test_ingest_text_posts_multipart_form_with_api_key(self) -> None:
+        """ingest_text 用 multipart form 提交，带 X-API-Key，字段含 text/collection/source/category。"""
+        client = RagClient(
+            base_url="http://rag-service:8001",
+            api_key="test-secret-key",
+        )
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(
+            200,
+            {
+                "code": "OK",
+                "message": "ok",
+                "data": {
+                    "doc_id": "abc12345",
+                    "chunk_count": 4,
+                    "collection": "ticket_knowledge",
+                    "action": "created",
+                },
+            },
+        )
+        client._client = mock_http
+
+        result = await client.ingest_text(
+            text="# 工单排查手册\n步骤 1...",
+            collection="ticket_knowledge",
+            source="admin-upload:工单排查手册",
+            category="technical",
+        )
+
+        # 验证返回 data 字段
+        assert result["doc_id"] == "abc12345"
+        assert result["chunk_count"] == 4
+        assert result["collection"] == "ticket_knowledge"
+
+        # 验证 POST 调用：data=（form 模式），json=None，带 X-API-Key
+        assert mock_http.post.called
+        _, kwargs = mock_http.post.call_args
+        assert kwargs.get("json") is None
+        form = kwargs.get("data") or {}
+        assert form["text"].startswith("# 工单排查手册")
+        assert form["collection"] == "ticket_knowledge"
+        assert form["source"] == "admin-upload:工单排查手册"
+        assert form["category"] == "technical"
+        headers = kwargs.get("headers") or {}
+        assert headers.get("X-API-Key") == "test-secret-key"
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_ingest_text_5xx_raises_rag_service_unavailable(self) -> None:
+        """5xx 响应抛 RagServiceUnavailable。"""
+        client = RagClient(base_url="http://rag-service:8001", retry=0)
+        mock_http = AsyncMock()
+        mock_http.post.return_value = _mock_response(503, {"detail": "Qdrant down"})
+        client._client = mock_http
+
+        with pytest.raises(RagServiceUnavailable, match="503"):
+            await client.ingest_text(text="x", collection="ticket_knowledge")
+        await client.close()
+
+
 class TestReActProcessorDegradeOnRagFailure:
     """ReActProcessorAgent 在 RagClient 失败时降级到无知识增强路径。"""
 

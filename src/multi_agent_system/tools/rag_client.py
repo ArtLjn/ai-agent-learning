@@ -193,15 +193,60 @@ class RagClient:
         except (httpx.HTTPError, ValueError) as e:
             raise RagServiceUnavailable(f"rag-service /health failed: {e}") from e
 
-    async def _post_with_retry(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """POST 带 retry。仅对网络错误重试；4xx/5xx 不重试。"""
+    async def ingest_text(
+        self,
+        text: str,
+        collection: str,
+        source: str | None = None,
+        category: str | None = None,
+    ) -> dict[str, Any]:
+        """调用 rag-service /ingest（text 模式），写入指定 collection。
+
+        rag-service /ingest 接收 multipart form（非 JSON），见 rag-service/app/api/ingest.py。
+
+        Args:
+            text: 文档原始文本（markdown / plain text）
+            collection: 目标 collection（如 ticket_knowledge）
+            source: 文档来源标识（可选）
+            category: 业务类别（可选）
+
+        Returns:
+            rag-service data 字段，含 doc_id / chunk_count / collection / action。
+
+        Raises:
+            RagServiceUnavailable: 网络异常 / 5xx / 超时
+        """
+        form_data: dict[str, str] = {
+            "text": text,
+            "collection": collection,
+        }
+        if source:
+            form_data["source"] = source
+        if category:
+            form_data["category"] = category
+        return await self._post_with_retry("/ingest", data=form_data)
+
+    async def _post_with_retry(
+        self,
+        path: str,
+        payload: dict[str, Any] | None = None,
+        data: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
+        """POST 带 retry。仅对网络错误重试；4xx/5xx 不重试。
+
+        payload 非 None 时走 JSON 模式；data 非 None 时走 multipart form 模式。
+        两者互斥，至少传一个。
+        """
         url = f"{self._base_url}{path}"
         headers = self._build_headers()
         last_exc: Exception | None = None
         attempts = self._retry + 1
+        body: dict[str, Any] | None = None
         for attempt in range(attempts):
             try:
-                response = await self._http.post(url, json=payload, headers=headers)
+                response = await self._http.post(
+                    url, json=payload, data=data, headers=headers
+                )
                 response.raise_for_status()
                 body = response.json()
             except httpx.HTTPStatusError as e:
@@ -226,12 +271,12 @@ class RagClient:
                 f"rag-service {path} returned code={body.get('code')} "
                 f"message={body.get('message')}"
             )
-        data = body.get("data")
-        if not isinstance(data, dict):
+        result_data = body.get("data")
+        if not isinstance(result_data, dict):
             raise RagServiceUnavailable(
-                f"rag-service {path} returned non-dict data: {type(data).__name__}"
+                f"rag-service {path} returned non-dict data: {type(result_data).__name__}"
             )
-        return data
+        return result_data
 
     @staticmethod
     def _parse_retrieve_item(item: dict[str, Any]) -> RagChunk:

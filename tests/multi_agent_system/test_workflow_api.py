@@ -78,6 +78,7 @@ def app():
         application.state.workflow = _FakeWorkflow()
         application.state.ticket_intent_agent = _FakeTicketIntentAgent()
         application.state.knowledge_tool = mock_knowledge_tool
+        application.state.rag_client = None  # 默认跳过双写，单测在用例里覆盖
         application.state.analytics_tool = analytics_tool
         yield
         await db_manager.close()
@@ -244,6 +245,59 @@ class TestKnowledgeAPI:
         data = response.json()
         assert data["status"] == "ok"
         assert data["chunks_added"] == 3
+        # rag_client 默认 None → rag_status=skipped
+        assert data["rag_service_status"] == "skipped"
+
+    def test_upload_knowledge_dual_write_to_rag_service(self, client):
+        """POST /api/knowledge 同时调 rag-service /ingest（双写）。"""
+        client.app.state.knowledge_tool.add_documents = MagicMock(return_value=2)
+
+        mock_rag_client = MagicMock()
+        mock_rag_client.ingest_text = AsyncMock(return_value={
+            "doc_id": "abc12345",
+            "chunk_count": 2,
+            "collection": "ticket_knowledge",
+            "action": "created",
+        })
+        client.app.state.rag_client = mock_rag_client
+
+        response = client.post(
+            "/api/knowledge",
+            json={"title": "工单排查", "content": "步骤 1...", "category": "technical"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["rag_service_status"] == "ok"
+        # 验证调用了 ingest_text 一次，collection 是 ticket_knowledge
+        assert mock_rag_client.ingest_text.call_count == 1
+        _, kwargs = mock_rag_client.ingest_text.call_args
+        assert kwargs["collection"] == "ticket_knowledge"
+        assert kwargs["text"] == "步骤 1..."
+        assert kwargs["category"] == "technical"
+
+    def test_upload_knowledge_rag_service_failure_does_not_block(self, client):
+        """rag-service ingest 失败时 rag_status=failed，但本地写入仍成功。"""
+        from src.multi_agent_system.tools.rag_client import RagServiceUnavailable
+
+        client.app.state.knowledge_tool.add_documents = MagicMock(return_value=2)
+        mock_rag_client = MagicMock()
+        mock_rag_client.ingest_text = AsyncMock(
+            side_effect=RagServiceUnavailable("503 Service Unavailable")
+        )
+        client.app.state.rag_client = mock_rag_client
+
+        response = client.post(
+            "/api/knowledge",
+            json={"title": "测试", "content": "x"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["status"] == "ok"
+        assert data["chunks_added"] == 2
+        assert data["rag_service_status"] == "failed"
 
     def test_list_knowledge(self, client):
         """GET /api/knowledge 返回已上传文档列表。"""
