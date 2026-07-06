@@ -361,6 +361,7 @@ class DatabaseManager:
         self,
         status: str | None = None,
         category: str | None = None,
+        user_id: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -370,6 +371,8 @@ class DatabaseManager:
                 stmt = stmt.where(TicketORM.status == status)
             if category:
                 stmt = stmt.where(TicketORM.category == category)
+            if user_id:
+                stmt = stmt.where(TicketORM.user_id == user_id)
             stmt = stmt.order_by(TicketORM.created_at.desc()).limit(limit).offset(offset)
             result = await session.execute(stmt)
             return [self._orm_to_dict(o) for o in result.scalars().all()]

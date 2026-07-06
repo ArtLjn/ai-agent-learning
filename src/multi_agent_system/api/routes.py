@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from loguru import logger
 
 from src.multi_agent_system.core import CachedLLMClient
+from src.multi_agent_system.config import Settings
 from src.multi_agent_system.core.logging import generate_trace_id
 from src.multi_agent_system.core.permissions import require_role
 from src.multi_agent_system.tools.rag_client import RagServiceUnavailable
@@ -271,10 +272,20 @@ async def create_ticket(body: TicketCreate, request: Request) -> dict:
 
     # 保存初始状态到数据库
     db_tool = request.app.state.db_tool
+
+    # user_id 优先取登录 session（防伪造），演示模式或前端显式传入时才用 body.user_id
+    from src.multi_agent_system.core.auth import get_current_user
+    session_user = get_current_user(request)
+    effective_user_id = (
+        session_user.get("user_id")
+        if session_user and session_user.get("user_id")
+        else (body.user_id or "anonymous")
+    )
+
     ticket_data = {
         "ticket_id": ticket_id,
         "content": intent["content"],
-        "user_id": body.user_id,
+        "user_id": effective_user_id,
         "category": intent.get("category"),
         "priority": intent.get("priority"),
         "status": state["status"],
@@ -308,11 +319,20 @@ async def create_batch_tickets(body: BatchTicketCreate, request: Request) -> dic
         ticket_id = state["ticket_id"]
 
         # 保存初始状态
+        # user_id 注入策略同单条 create_ticket：session 优先，body 兜底，再 fallback 'anonymous'
+        from src.multi_agent_system.core.auth import get_current_user
+        session_user = get_current_user(request)
+        effective_user_id = (
+            session_user.get("user_id")
+            if session_user and session_user.get("user_id")
+            else (ticket.user_id or "anonymous")
+        )
+
         db_tool = request.app.state.db_tool
         ticket_data = {
             "ticket_id": ticket_id,
             "content": ticket.content,
-            "user_id": ticket.user_id,
+            "user_id": effective_user_id,
             "status": state["status"],
             "created_at": datetime.now().isoformat(),
         }
@@ -395,6 +415,10 @@ async def get_ticket(ticket_id: str, request: Request) -> TicketResponse:
     if ticket is None:
         raise HTTPException(status_code=404, detail=f"工单 {ticket_id} 不存在")
 
+    # 用户隔离：user 角色只能看自己的工单
+    from src.multi_agent_system.core.auth import assert_ticket_access
+    assert_ticket_access(ticket, request)
+
     return TicketResponse(
         ticket_id=ticket.get("ticket_id", ticket_id),
         content=ticket.get("content", ""),
@@ -416,6 +440,9 @@ async def list_ticket_messages(ticket_id: str, request: Request) -> list[dict]:
     ticket = await request.app.state.db_manager.get_ticket(ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail=f"工单 {ticket_id} 不存在")
+    # 用户隔离校验
+    from src.multi_agent_system.core.auth import assert_ticket_access
+    assert_ticket_access(ticket, request)
     return await request.app.state.db_manager.list_ticket_messages(ticket_id)
 
 
@@ -429,6 +456,9 @@ async def create_user_ticket_message(
     ticket = await request.app.state.db_manager.get_ticket(ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail=f"工单 {ticket_id} 不存在")
+    # 用户隔离校验
+    from src.multi_agent_system.core.auth import assert_ticket_access
+    assert_ticket_access(ticket, request)
     if ticket.get("status") != "waiting_user_input":
         raise HTTPException(
             status_code=409,
@@ -487,10 +517,23 @@ async def list_tickets(
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
     offset: int = Query(default=0, ge=0, description="偏移量"),
 ) -> list[TicketResponse]:
-    """工单列表查询，支持状态和分类过滤以及分页。"""
+    """工单列表查询，支持状态和分类过滤以及分页。
+
+    用户隔离：user 角色只看自己的工单；admin/developer 看全部。
+    """
     db_tool = request.app.state.db_tool
+    # user 角色按 session.user_id 过滤；admin/developer 不过滤
+    from src.multi_agent_system.core.auth import get_session_role, get_session_user_id
+    role = get_session_role(request)
+    filter_user_id = (
+        get_session_user_id(request) if role == "user" else None
+    )
     tickets: list[dict[str, Any]] = await db_tool.list_tickets(
-        status=status, category=category, limit=limit, offset=offset
+        status=status,
+        category=category,
+        user_id=filter_user_id,
+        limit=limit,
+        offset=offset,
     )
 
     return [
@@ -716,6 +759,16 @@ async def submit_feedback(
     app = request.app
     db_manager = app.state.db_manager
     db_tool = app.state.db_tool
+
+    # 用户隔离校验
+    ticket = await db_tool.get_ticket(ticket_id)
+    if ticket is None:
+        raise HTTPException(status_code=404, detail=f"工单 {ticket_id} 不存在")
+    from src.multi_agent_system.core.auth import assert_ticket_access, get_session_role
+    assert_ticket_access(ticket, request)
+    if Settings().auth_enabled and get_session_role(request) != "user":
+        raise HTTPException(status_code=403, detail="仅工单所属用户可提交满意度反馈")
+
     collector = EvaluationCollector(db_manager=db_manager)
 
     try:
@@ -1186,6 +1239,20 @@ def _build_span_tree(spans: list[dict]) -> list[dict]:
 @router.websocket("/ws/tickets/{ticket_id}")
 async def websocket_ticket_progress(websocket: WebSocket, ticket_id: str) -> None:
     """WebSocket 端点：客户端连接后实时接收工单处理进度更新。"""
+    # 用户隔离校验：accept 之前先查工单 + 校验访问权限
+    db_manager = websocket.app.state.db_manager
+    ticket = await db_manager.get_ticket(ticket_id)
+    if ticket is None:
+        await websocket.close(code=4404)
+        return
+    try:
+        from src.multi_agent_system.core.auth import assert_ticket_access
+        assert_ticket_access(ticket, websocket)
+    except HTTPException:
+        # 4403 自定义关闭码：无权访问
+        await websocket.close(code=4403)
+        return
+
     await websocket.accept()
 
     # 注册连接

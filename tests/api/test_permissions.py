@@ -13,7 +13,7 @@ from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.api.routes import router as biz_router
 from src.multi_agent_system.core.auth import require_login
 from src.multi_agent_system.core.database import DatabaseManager
-from src.multi_agent_system.core.permissions import require_role
+from src.multi_agent_system.core.permissions import get_role_routes, require_role
 from tests.conftest import TEST_DATABASE_URL
 
 _SESSION_SECRET = "test-session-secret-32-chars-or-more"
@@ -152,6 +152,26 @@ def test_require_role_rejects_invalid_role_name() -> None:
 def test_require_role_requires_at_least_one_role() -> None:
     with pytest.raises(ValueError, match="至少"):
         require_role()
+
+
+def test_role_route_permissions_match_v2_boundary() -> None:
+    """v2.0 前端可见路由边界：业务运营与技术工作台分离。"""
+    admin_routes = set(get_role_routes("admin"))
+    developer_routes = set(get_role_routes("developer"))
+    user_routes = set(get_role_routes("user"))
+
+    assert "/dashboard" in admin_routes
+    assert "/dashboard" not in user_routes
+    assert "/dashboard" not in developer_routes
+    assert "/my" in user_routes
+    assert "/my" not in admin_routes
+    assert "/my" not in developer_routes
+    assert "/settings" in admin_routes
+    assert "/settings" in developer_routes
+    assert "/monitor" not in admin_routes
+    assert "/monitor" in developer_routes
+    assert "/reviews" in admin_routes
+    assert "/reviews" not in developer_routes
 
 
 # ============================================================

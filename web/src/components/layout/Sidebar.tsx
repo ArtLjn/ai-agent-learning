@@ -30,19 +30,20 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard', roles: ['user', 'admin', 'developer'] },
+  { to: '/my', icon: LayoutDashboard, label: '我的工作台', roles: ['user'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: '运营总览', roles: ['admin'] },
   { to: '/tickets', icon: Ticket, label: '工单管理', roles: ['user', 'admin', 'developer'] },
   { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'admin', 'developer'] },
   { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['admin'] },
   { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
   { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
   { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin'] },
-  { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer', 'admin'] },
+  { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer'] },
   { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['developer'] },
   { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['developer'] },
   { to: '/dev/traces', icon: GitBranch, label: 'Trace 决策树', roles: ['developer'] },
   { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer'] },
-  { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin'] },
+  { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin', 'developer'] },
 ]
 
 export function Sidebar() {

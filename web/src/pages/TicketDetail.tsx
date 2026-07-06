@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTicket, useTicketTrace, useTraceDecisions } from '@/hooks/useApi'
 import { useWebSocket } from '@/hooks/useWebSocket'
-import { api } from '@/lib/api'
+import { api, type AuthState } from '@/lib/api'
+import { toast } from '@/lib/toast'
 import type { Span, TicketMessage, TraceDetail, TraceDecisionsResponse, WSMessage } from '@/types'
 import { buildKnowledgeSearchParams } from '@/lib/knowledgeReference'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -22,16 +23,20 @@ import { formatDuration } from '@/components/trace/spanTypes'
 import {
   ArrowLeft, MessageSquare, Brain, Clock, Layers, Bot, Wrench,
   BookOpen, ExternalLink, Activity, Zap, GitFork, Send, ShieldCheck, RotateCcw,
+  ThumbsDown, ThumbsUp,
 } from 'lucide-react'
 
 export function TicketDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const [auth, setAuth] = useState<AuthState | null>(null)
   const { data: ticket, isLoading, refetch: refetchTicket } = useTicket(id!, true)
   const ticketStatus = ticket?.status
   const isRunning = !!ticketStatus && !['completed', 'failed'].includes(ticketStatus)
-  const { data: trace } = useTicketTrace(id!, isRunning)
+  const role = auth?.role
+  const isDeveloper = role === 'developer'
+  const { data: trace } = useTicketTrace(id!, isRunning, isDeveloper)
   const traceDetail = trace as TraceDetail | undefined
   const traceId = traceDetail?.trace_id || ''
   const { data: decisionsResp } = useTraceDecisions(traceId)
@@ -45,6 +50,21 @@ export function TicketDetail() {
   const [sheetOpen, setSheetOpen] = useState(false)
   const [reply, setReply] = useState('')
 
+  useEffect(() => {
+    let alive = true
+    api
+      .getAuthState()
+      .then((state) => {
+        if (alive) setAuth(state)
+      })
+      .catch(() => {
+        if (alive) setAuth(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
+
   const submitMessage = useMutation({
     mutationFn: (content: string) => api.createTicketMessage(id!, {
       content,
@@ -56,6 +76,22 @@ export function TicketDetail() {
       qc.invalidateQueries({ queryKey: ['ticket', id] })
       qc.invalidateQueries({ queryKey: ['tickets'] })
       qc.invalidateQueries({ queryKey: ['ticketTrace', id] })
+    },
+  })
+
+  const submitFeedback = useMutation({
+    mutationFn: (satisfied: boolean) => api.submitFeedback(id!, satisfied),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['ticket', id] })
+      qc.invalidateQueries({ queryKey: ['tickets'] })
+      if (result.satisfied) {
+        toast.success('已记录反馈', '感谢确认，本次服务已完成闭环')
+      } else {
+        toast.warning('已升级人工审核', '系统已将该工单转入人工复核队列')
+      }
+    },
+    onError: (error) => {
+      toast.error('反馈提交失败', error instanceof Error ? error.message : '请稍后重试')
     },
   })
 
@@ -124,7 +160,7 @@ export function TicketDetail() {
 
       <div className="grid grid-cols-12 gap-6">
         {/* 左侧：工单上下文 + 过程记录 */}
-        <div className="col-span-5 space-y-4">
+        <div className={isDeveloper ? 'col-span-5 space-y-4' : 'col-span-12 space-y-4'}>
           {/* 基本信息卡片 */}
           <Card className="bg-card border-border">
             <CardHeader className="pb-3">
@@ -220,114 +256,152 @@ export function TicketDetail() {
             submitting={submitMessage.isPending}
             error={submitMessage.error instanceof Error ? submitMessage.error.message : null}
           />
+
+          <FeedbackCard
+            status={ticket.status}
+            satisfied={ticket.satisfied}
+            canSubmit={role === 'user'}
+            submitting={submitFeedback.isPending}
+            onSubmit={(satisfied) => submitFeedback.mutate(satisfied)}
+          />
         </div>
 
-        {/* 右侧：Trace 决策链 */}
-        <div className="col-span-7 space-y-4">
-          {/* 实时执行流（演示用：agent 工作过程动态展示） */}
-          <LiveExecutionFlow
+        {isDeveloper && (
+          <TraceSection
             ticketId={ticket.ticket_id}
-            spans={traceDetail?.spans || []}
-            isRunning={!['completed', 'failed'].includes(ticket.status)}
+            ticketStatus={ticket.status}
+            traceDetail={traceDetail}
+            traceStats={traceStats}
+            decisions={decisions}
+            onSelectSpan={handleSelectSpan}
           />
+        )}
+      </div>
 
-          {traceDetail ? (
-            <>
-              {/* 决策链概览 */}
-              <Card className="bg-card border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Brain className="w-4 h-4 text-primary" />
-                    决策链概览
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-                    <MiniStat icon={<Clock className="h-4 w-4" />} label="总耗时" value={formatDuration(traceStats.totalDuration)} />
-                    <MiniStat icon={<Layers className="h-4 w-4" />} label="节点数" value={traceStats.nodeCount} />
-                    <MiniStat icon={<Bot className="h-4 w-4" />} label="LLM 调用" value={traceStats.llmCalls} />
-                    <MiniStat icon={<Wrench className="h-4 w-4" />} label="工具调用" value={traceStats.toolCalls} />
-                    <MiniStat icon={<Zap className="h-4 w-4" />} label="ReAct 推理" value={traceStats.reactIters} />
-                  </div>
-                  {(traceStats.slowestSpan || traceStats.errorCount > 0) && (
-                    <div className="mt-3 grid grid-cols-2 gap-3">
-                      {traceStats.slowestSpan && (
-                        <div className="rounded-md border border-border bg-background p-3 text-xs">
-                          <p className="text-muted-foreground mb-0.5">最耗时节点</p>
-                          <p className="font-medium text-foreground truncate">{traceStats.slowestSpan.name}</p>
-                          <p className="font-mono text-primary mt-0.5">{formatDuration(traceStats.slowestSpan.duration)}</p>
-                        </div>
-                      )}
-                      <div className="rounded-md border border-border bg-background p-3 text-xs">
-                        <p className="text-muted-foreground mb-0.5">错误节点</p>
-                        <p className={`font-medium ${traceStats.errorCount > 0 ? 'text-destructive' : 'text-success'}`}>
-                          {traceStats.errorCount > 0 ? `${traceStats.errorCount} 个失败` : '全部成功'}
-                        </p>
-                      </div>
+      {isDeveloper && (
+        <SpanDetailSheet
+          span={selectedSpan}
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+        />
+      )}
+    </div>
+  )
+}
+
+function TraceSection({
+  ticketId,
+  ticketStatus,
+  traceDetail,
+  traceStats,
+  decisions,
+  onSelectSpan,
+}: {
+  ticketId: string
+  ticketStatus: string
+  traceDetail?: TraceDetail
+  traceStats: TraceOverviewStats
+  decisions: TraceDecisionsResponse['decisions']
+  onSelectSpan: (span: Span) => void
+}) {
+  return (
+    <div className="col-span-7 space-y-4">
+      {/* 实时执行流（演示用：agent 工作过程动态展示） */}
+      <LiveExecutionFlow
+        ticketId={ticketId}
+        spans={traceDetail?.spans || []}
+        isRunning={!['completed', 'failed'].includes(ticketStatus)}
+      />
+
+      {traceDetail ? (
+        <>
+          {/* 决策链概览 */}
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Brain className="w-4 h-4 text-primary" />
+                决策链概览
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <MiniStat icon={<Clock className="h-4 w-4" />} label="总耗时" value={formatDuration(traceStats.totalDuration)} />
+                <MiniStat icon={<Layers className="h-4 w-4" />} label="节点数" value={traceStats.nodeCount} />
+                <MiniStat icon={<Bot className="h-4 w-4" />} label="LLM 调用" value={traceStats.llmCalls} />
+                <MiniStat icon={<Wrench className="h-4 w-4" />} label="工具调用" value={traceStats.toolCalls} />
+                <MiniStat icon={<Zap className="h-4 w-4" />} label="ReAct 推理" value={traceStats.reactIters} />
+              </div>
+              {(traceStats.slowestSpan || traceStats.errorCount > 0) && (
+                <div className="mt-3 grid grid-cols-2 gap-3">
+                  {traceStats.slowestSpan && (
+                    <div className="rounded-md border border-border bg-background p-3 text-xs">
+                      <p className="text-muted-foreground mb-0.5">最耗时节点</p>
+                      <p className="font-medium text-foreground truncate">{traceStats.slowestSpan.name}</p>
+                      <p className="font-mono text-primary mt-0.5">{formatDuration(traceStats.slowestSpan.duration)}</p>
                     </div>
                   )}
-                </CardContent>
-              </Card>
-
-              {/* 决策链甘特图（核心） */}
-              <Card className="bg-card border-border">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-sm flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-primary" />
-                    决策链时间线
-                    <span className="ml-auto text-[11px] font-normal text-muted-foreground">
-                      点击节点查看完整输入/输出
-                    </span>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="max-h-[720px] overflow-y-auto pr-2">
-                    <TraceGantt
-                      spans={traceDetail.spans || []}
-                      onSelect={handleSelectSpan}
-                    />
+                  <div className="rounded-md border border-border bg-background p-3 text-xs">
+                    <p className="text-muted-foreground mb-0.5">错误节点</p>
+                    <p className={`font-medium ${traceStats.errorCount > 0 ? 'text-destructive' : 'text-success'}`}>
+                      {traceStats.errorCount > 0 ? `${traceStats.errorCount} 个失败` : '全部成功'}
+                    </p>
                   </div>
-                </CardContent>
-              </Card>
-
-              {decisions.length > 0 && (
-                <Card className="bg-card border-border">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-sm flex items-center gap-2">
-                      <GitFork className="w-4 h-4 text-primary" />
-                      决策点明细
-                      <span className="ml-auto text-[11px] font-normal text-muted-foreground">
-                        每个分岔路口 AI 的候选与选择
-                      </span>
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="max-h-[520px] overflow-y-auto pr-2">
-                      <DecisionTimeline decisions={decisions} />
-                    </div>
-                  </CardContent>
-                </Card>
+                </div>
               )}
-            </>
-          ) : (
+            </CardContent>
+          </Card>
+
+          {/* 决策链甘特图（核心） */}
+          <Card className="bg-card border-border">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Activity className="w-4 h-4 text-primary" />
+                决策链时间线
+                <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+                  点击节点查看完整输入/输出
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="max-h-[720px] overflow-y-auto pr-2">
+                <TraceGantt
+                  spans={traceDetail.spans || []}
+                  onSelect={onSelectSpan}
+                />
+              </div>
+            </CardContent>
+          </Card>
+
+          {decisions.length > 0 && (
             <Card className="bg-card border-border">
-              <CardContent className="py-16 text-center">
-                <Brain className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
-                <p className="text-sm text-muted-foreground">该工单暂无 Trace 数据</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
-                  工单被处理后将自动记录决策链
-                </p>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <GitFork className="w-4 h-4 text-primary" />
+                  决策点明细
+                  <span className="ml-auto text-[11px] font-normal text-muted-foreground">
+                    每个分岔路口 AI 的候选与选择
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="max-h-[520px] overflow-y-auto pr-2">
+                  <DecisionTimeline decisions={decisions} />
+                </div>
               </CardContent>
             </Card>
           )}
-        </div>
-      </div>
-
-      <SpanDetailSheet
-        span={selectedSpan}
-        open={sheetOpen}
-        onOpenChange={setSheetOpen}
-      />
+        </>
+      ) : (
+        <Card className="bg-card border-border">
+          <CardContent className="py-16 text-center">
+            <Brain className="h-10 w-10 mx-auto mb-3 text-muted-foreground/40" />
+            <p className="text-sm text-muted-foreground">该工单暂无 Trace 数据</p>
+            <p className="text-xs text-muted-foreground/70 mt-1">
+              工单被处理后将自动记录决策链
+            </p>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }
@@ -508,6 +582,83 @@ function ProcessLogCard({
             )}
           </div>
         </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function FeedbackCard({
+  status,
+  satisfied,
+  canSubmit,
+  submitting,
+  onSubmit,
+}: {
+  status: string
+  satisfied?: boolean | number | null
+  canSubmit: boolean
+  submitting: boolean
+  onSubmit: (satisfied: boolean) => void
+}) {
+  const completed = status === 'completed'
+  const hasFeedback = satisfied !== undefined && satisfied !== null
+  const wasSatisfied = satisfied === true || satisfied === 1
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm flex items-center gap-2">
+          <ShieldCheck className="w-4 h-4 text-primary" />
+          结果反馈与升级
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {!completed ? (
+          <p className="rounded-md border border-dashed border-border bg-background/40 px-3 py-4 text-sm text-muted-foreground">
+            工单完成后可确认处理结果；如果不满意，系统会自动升级到人工审核。
+          </p>
+        ) : hasFeedback ? (
+          <div className={`rounded-md border px-3 py-4 text-sm ${
+            wasSatisfied
+              ? 'border-success/30 bg-success/10 text-success'
+              : 'border-warning/30 bg-warning/10 text-warning'
+          }`}>
+            {wasSatisfied
+              ? '你已确认满意，本次服务闭环完成。'
+              : '你已反馈不满意，工单已升级到人工复核队列。'}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {canSubmit
+                ? '请确认本次处理结果是否解决问题。不满意会触发人工复核。'
+                : '该工单还没有用户满意度反馈。管理员和开发者只能查看反馈状态。'}
+            </p>
+            {canSubmit && (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => onSubmit(true)}
+                  disabled={submitting}
+                >
+                  <ThumbsUp className="h-4 w-4" />
+                  满意，结束工单
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => onSubmit(false)}
+                  disabled={submitting}
+                >
+                  <ThumbsDown className="h-4 w-4" />
+                  不满意，升级人工
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </CardContent>
     </Card>
   )

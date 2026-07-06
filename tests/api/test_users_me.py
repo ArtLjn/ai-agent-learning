@@ -216,7 +216,7 @@ def test_get_me_permissions_returns_user_routes(client: TestClient) -> None:
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["role"] == "user"
-    assert set(body["routes"]) == {"/", "/tickets", "/tickets/:id", "/profile"}
+    assert set(body["routes"]) == {"/", "/my", "/tickets", "/tickets/:id", "/profile"}
     # 不含 admin 专属路由
     for forbidden in ("/reviews", "/knowledge", "/settings", "/monitor"):
         assert forbidden not in body["routes"]

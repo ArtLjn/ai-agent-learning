@@ -11,6 +11,7 @@ export interface Ticket {
   retry_count: number
   status: TicketStatus
   error: string | null
+  satisfied?: boolean | number | null
   created_at: string
 }
 

@@ -19,15 +19,15 @@ __all__ = ["require_role", "ROLE_PERMISSIONS", "get_role_routes"]
 # v2.0 设计 3 角色：user / admin / developer（详见 docs/design-spec/
 # assets/system-module-architecture-v2-ascii.md）
 ROLE_PERMISSIONS: dict[str, list[str]] = {
-    "user": ["/", "/tickets", "/tickets/:id", "/profile"],
+    "user": ["/", "/my", "/tickets", "/tickets/:id", "/profile"],
     "admin": [
-        "/", "/tickets", "/tickets/:id", "/profile",
-        "/reviews", "/knowledge", "/monitor", "/settings",
+        "/", "/dashboard", "/tickets", "/tickets/:id", "/profile",
+        "/reviews", "/knowledge", "/settings",
         "/admin/users", "/admin/audit-logs",
     ],
     "developer": [
         "/", "/tickets", "/tickets/:id", "/profile",
-        "/reviews", "/monitor",
+        "/monitor", "/settings",
         "/dev/prompts", "/dev/agent-stats",
         "/dev/traces", "/dev/tokens",
     ],

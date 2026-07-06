@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { RequireAuth } from '@/components/RequireAuth'
 import { RequireRole } from '@/components/RequireRole'
+import { RoleHome } from '@/pages/RoleHome'
 import { Dashboard } from '@/pages/Dashboard'
 import { Tickets } from '@/pages/Tickets'
 import { TicketDetail } from '@/pages/TicketDetail'
@@ -12,6 +13,7 @@ import { ReviewWorkbench } from '@/pages/ReviewWorkbench'
 import { Login } from '@/pages/Login'
 import { Register } from '@/pages/Register'
 import { Profile } from '@/pages/Profile'
+import { UserHome } from '@/pages/user/UserHome'
 import { UserManagement } from '@/pages/admin/UserManagement'
 import { AuditLog } from '@/pages/admin/AuditLog'
 import { PromptVersions } from '@/pages/dev/PromptVersions'
@@ -32,13 +34,29 @@ function App() {
             </RequireAuth>
           }
         >
-          {/* 全角色可见 */}
-          <Route index element={<Dashboard />} />
+          {/* 全角色入口：按角色分流到各自首页 */}
+          <Route index element={<RoleHome />} />
+          <Route
+            path="my"
+            element={
+              <RequireRole roles={['user']}>
+                <UserHome />
+              </RequireRole>
+            }
+          />
           <Route path="tickets" element={<Tickets />} />
           <Route path="tickets/:id" element={<TicketDetail />} />
           <Route path="profile" element={<Profile />} />
 
           {/* 角色受限 */}
+          <Route
+            path="dashboard"
+            element={
+              <RequireRole roles={['admin']}>
+                <Dashboard />
+              </RequireRole>
+            }
+          />
           <Route
             path="reviews"
             element={
@@ -58,7 +76,7 @@ function App() {
           <Route
             path="monitor"
             element={
-              <RequireRole roles={['developer', 'admin']}>
+              <RequireRole roles={['developer']}>
                 <AgentMonitor />
               </RequireRole>
             }
@@ -66,7 +84,7 @@ function App() {
           <Route
             path="settings"
             element={
-              <RequireRole roles={['admin']}>
+              <RequireRole roles={['admin', 'developer']}>
                 <Settings />
               </RequireRole>
             }

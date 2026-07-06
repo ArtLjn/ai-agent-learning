@@ -49,8 +49,7 @@ interface AgentTicketComposerProps {
   onCreated?: () => void
 }
 
-function AgentTicketComposer({ compact = false, onCreated }: AgentTicketComposerProps) {
-  const [userId, setUserId] = useState('U001')
+export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketComposerProps) {
   const [content, setContent] = useState('')
   const [mockPrompt, setMockPrompt] = useState('')
   const [mockSource, setMockSource] = useState<string>('')
@@ -62,9 +61,9 @@ function AgentTicketComposer({ compact = false, onCreated }: AgentTicketComposer
 
   const handleSubmit = async () => {
     if (!canSubmit) return
+    // user_id 由后端从 session 自动注入（防伪造），前端不再显示也不传
     await createMutation.mutateAsync({
       content: content.trim(),
-      user_id: userId.trim() || undefined,
     })
     setContent('')
     onCreated?.()
@@ -117,13 +116,7 @@ function AgentTicketComposer({ compact = false, onCreated }: AgentTicketComposer
         </div>
       )}
 
-      <div className="grid gap-3 lg:grid-cols-[140px_1fr_auto]">
-        <Input
-          value={userId}
-          onChange={(e) => setUserId(e.target.value)}
-          placeholder="用户 ID"
-          className="h-9"
-        />
+      <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
         <Textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
@@ -258,8 +251,8 @@ export function Tickets() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">工单管理</h2>
-          <p className="mt-1 text-sm text-muted-foreground">管理和追踪所有工单</p>
+          <h2 className="text-xl font-semibold">工单列表</h2>
+          <p className="mt-1 text-sm text-muted-foreground">提交问题并追踪工单处理进度</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button size="sm" />}>

@@ -45,11 +45,11 @@ export function useTraces(params?: Record<string, string>) {
   })
 }
 
-export function useTicketTrace(ticketId: string, isRunning?: boolean) {
+export function useTicketTrace(ticketId: string, isRunning?: boolean, enabled = true) {
   return useQuery({
     queryKey: ['ticketTrace', ticketId],
     queryFn: () => api.getTicketTrace(ticketId),
-    enabled: !!ticketId,
+    enabled: enabled && !!ticketId,
     refetchInterval: isRunning ? 1500 : false,
     refetchOnWindowFocus: true,
   })

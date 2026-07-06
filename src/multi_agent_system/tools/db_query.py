@@ -53,11 +53,18 @@ class DBQueryTool:
         self,
         status: str | None = None,
         category: str | None = None,
+        user_id: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
         db = await self._get_db()
-        return await db.list_tickets(status=status, category=category, limit=limit, offset=offset)
+        return await db.list_tickets(
+            status=status,
+            category=category,
+            user_id=user_id,
+            limit=limit,
+            offset=offset,
+        )
 
     async def ensure_user(self, user_id: str, name: str = "") -> dict[str, Any]:
         db = await self._get_db()
