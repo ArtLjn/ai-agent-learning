@@ -248,6 +248,49 @@ export interface KnowledgeIngestResult {
   action: string
 }
 
+export interface KnowledgeEvaluationMetrics {
+  recall_at_k?: Record<string, number>
+  precision_at_k?: Record<string, number>
+  ndcg_at_k?: Record<string, number>
+  mrr?: number
+  hit_rate?: number
+  sample_count?: number
+}
+
+export interface KnowledgeEvaluationSample {
+  query: string
+  collection: string
+  tags?: string[]
+  relevant: string[]
+  retrieved: string[]
+  retrieved_aliases?: string[][]
+  first_hit_rank: number | null
+  hit: boolean
+  actual_mode?: string
+  warning?: string | null
+}
+
+export interface KnowledgeEvaluationReport {
+  schema_version: string
+  started_at: string
+  finished_at: string
+  dataset_path: string
+  mode: string
+  top_k: number
+  k_values: number[]
+  summary: {
+    sample_count: number
+    metrics: KnowledgeEvaluationMetrics
+  }
+  samples: KnowledgeEvaluationSample[]
+  report_path?: string
+}
+
+export interface KnowledgeEvaluationLatestResponse {
+  available: boolean
+  report: KnowledgeEvaluationReport | null
+}
+
 export interface TicketListParams {
   status?: string
   category?: string

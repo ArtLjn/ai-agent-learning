@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # rag-service 配置（v2.0：主系统作为 rag-service 客户端，详见 11 号文档）
     rag_service_url: str = "http://localhost:8001"
     rag_service_timeout_seconds: int = 10
+    rag_service_ingest_timeout_seconds: int = 120
     rag_service_retry: int = 1
     rag_service_fallback_enabled: bool = True
     # rag-service API Key（生产 rag.lllcnm.cn 必填，本地开发可选；从环境变量

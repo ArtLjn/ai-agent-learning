@@ -52,6 +52,7 @@ chunk_overlap: 64
 # /retrieve 与 /rerank。rag-service 不可用时，ReActProcessorAgent 走无知识增强分支。
 rag_service_url: "http://localhost:8001"
 rag_service_timeout_seconds: 10   # 单次请求超时（秒）
+rag_service_ingest_timeout_seconds: 120  # 文件入库超时（秒），PDF 解析/向量化通常比检索更久
 rag_service_retry: 1              # 网络错误重试次数（5xx 不重试）
 rag_service_fallback_enabled: true  # 失败时降级到无 RAG 分支
 # API Key：生产 rag.lllcnm.cn 必填（X-API-Key header），本地开发可留空。

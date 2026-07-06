@@ -697,6 +697,51 @@ async def delete_knowledge(
     return {"status": "ok", **result}
 
 
+@router.get("/knowledge/evaluation", response_model=dict)
+async def get_knowledge_evaluation(
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
+    """获取 rag-service 最新 RAG 召回评测报告。"""
+    rag_client = request.app.state.rag_client
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
+
+    try:
+        return await rag_client.latest_evaluation()
+    except RagServiceUnavailable as e:
+        logger.warning(f"rag-service latest_evaluation 失败: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
+@router.post("/knowledge/evaluation/run", response_model=dict)
+async def run_knowledge_evaluation(
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
+    """触发 rag-service 运行 RAG 召回评测。"""
+    rag_client = request.app.state.rag_client
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
+
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+
+    try:
+        return await rag_client.run_evaluation(
+            mode=body.get("mode") or "hybrid",
+            top_k=int(body.get("top_k") or 10),
+            k_values=body.get("k_values") or [1, 3, 5, 10],
+        )
+    except RagServiceUnavailable as e:
+        logger.warning(f"rag-service run_evaluation 失败: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+
 # ============================================================
 # 统计接口
 # ============================================================

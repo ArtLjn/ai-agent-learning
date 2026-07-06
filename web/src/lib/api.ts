@@ -8,6 +8,8 @@ import type {
   ChangePasswordRequest,
   ChangePasswordResponse,
   KnowledgeListResponse,
+  KnowledgeEvaluationLatestResponse,
+  KnowledgeEvaluationReport,
   PromptAgentName,
   PromptDiffResponse,
   PromptVersion,
@@ -185,6 +187,13 @@ export const api = {
     }),
   deleteKnowledge: (docId: string) =>
     request<ApiRecord>(`/knowledge/${docId}`, { method: 'DELETE' }),
+  getKnowledgeEvaluation: () =>
+    request<KnowledgeEvaluationLatestResponse>('/knowledge/evaluation'),
+  runKnowledgeEvaluation: () =>
+    request<KnowledgeEvaluationReport>('/knowledge/evaluation/run', {
+      method: 'POST',
+      body: JSON.stringify({ mode: 'hybrid', top_k: 10, k_values: [1, 3, 5, 10] }),
+    }),
 
   // Settings
   getSettings: () => request<SystemSettings>('/settings'),

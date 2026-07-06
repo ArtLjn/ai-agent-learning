@@ -429,6 +429,24 @@ class TestRagClientIngestFile:
             )
         await client.close()
 
+    @pytest.mark.asyncio
+    async def test_ingest_file_timeout_is_not_retried(self) -> None:
+        """文件入库耗时较长；超时后不重复提交，避免远端后台重复解析同一文件。"""
+        client = RagClient(base_url="http://rag-service:8001", retry=3)
+        mock_http = AsyncMock()
+        mock_http.post.side_effect = httpx.ReadTimeout("timed out")
+        client._client = mock_http
+
+        with pytest.raises(RagServiceUnavailable, match="after 1 attempts"):
+            await client.ingest_file(
+                file_bytes=b"%PDF-1.4 fake pdf content",
+                filename="manual.pdf",
+                collection="ticket_knowledge",
+            )
+
+        assert mock_http.post.call_count == 1
+        await client.close()
+
 
 class TestRagClientListDocuments:
     """GET /collections/{name}/documents 测试。"""

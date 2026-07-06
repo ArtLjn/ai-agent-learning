@@ -55,6 +55,7 @@ class RagClient:
         settings = Settings()
         self._base_url = (base_url or settings.rag_service_url).rstrip("/")
         self._timeout = timeout_seconds or settings.rag_service_timeout_seconds
+        self._ingest_timeout = settings.rag_service_ingest_timeout_seconds
         self._retry = retry if retry is not None else settings.rag_service_retry
         self._fallback_enabled = (
             fallback_enabled
@@ -267,12 +268,19 @@ class RagClient:
         if category:
             data["category"] = category
 
-        last_exc: Exception | None = None
-        attempts = self._retry + 1
+        # 文件入库可能包含 PDF 解析、远程 MinerU、Embedding 与 Qdrant 写入。
+        # 一旦请求已到达服务端，客户端超时后重试会造成同一文件被重复解析/写入。
+        attempts = 1
         body: dict[str, Any] | None = None
         for attempt in range(attempts):
             try:
-                response = await self._http.post(url, files=files, data=data, headers=headers)
+                response = await self._http.post(
+                    url,
+                    files=files,
+                    data=data,
+                    headers=headers,
+                    timeout=self._ingest_timeout,
+                )
                 response.raise_for_status()
                 body = response.json()
             except httpx.HTTPStatusError as e:
@@ -280,7 +288,6 @@ class RagClient:
                     f"rag-service /ingest returned {e.response.status_code}"
                 ) from e
             except (httpx.HTTPError, ValueError) as e:
-                last_exc = e
                 if attempt < attempts - 1:
                     logger.warning(
                         f"[RagClient] /ingest attempt {attempt + 1} failed: {e}, retrying"
@@ -385,6 +392,44 @@ class RagClient:
             )
         return result_data
 
+    async def latest_evaluation(self) -> dict[str, Any]:
+        """调用 GET /evaluation/latest 获取最新 RAG 评测报告。"""
+        url = f"{self._base_url}/evaluation/latest"
+        headers = self._build_headers()
+        try:
+            response = await self._http.get(url, headers=headers)
+            response.raise_for_status()
+            body = response.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise RagServiceUnavailable(f"rag-service latest_evaluation failed: {e}") from e
+
+        if body.get("code") != "OK":
+            raise RagServiceUnavailable(
+                f"rag-service latest_evaluation returned code={body.get('code')} "
+                f"message={body.get('message')}"
+            )
+        result_data = body.get("data")
+        if not isinstance(result_data, dict):
+            raise RagServiceUnavailable(
+                f"rag-service latest_evaluation returned non-dict data: {type(result_data).__name__}"
+            )
+        return result_data
+
+    async def run_evaluation(
+        self,
+        *,
+        mode: str = "hybrid",
+        top_k: int = 10,
+        k_values: list[int] | None = None,
+    ) -> dict[str, Any]:
+        """调用 POST /evaluation/run 运行 RAG 召回评测。"""
+        payload = {
+            "mode": mode,
+            "top_k": top_k,
+            "k_values": k_values or [1, 3, 5, 10],
+        }
+        return await self._post_with_retry("/evaluation/run", payload)
+
     async def _post_with_retry(
         self,
         path: str,
@@ -398,7 +443,6 @@ class RagClient:
         """
         url = f"{self._base_url}{path}"
         headers = self._build_headers()
-        last_exc: Exception | None = None
         attempts = self._retry + 1
         body: dict[str, Any] | None = None
         for attempt in range(attempts):
@@ -414,7 +458,6 @@ class RagClient:
                     f"rag-service {path} returned {e.response.status_code}"
                 ) from e
             except (httpx.HTTPError, ValueError) as e:
-                last_exc = e
                 if attempt < attempts - 1:
                     logger.warning(
                         f"[RagClient] {path} attempt {attempt + 1} failed: {e}, retrying"

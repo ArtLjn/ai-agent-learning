@@ -88,12 +88,31 @@ export function useKnowledge(page = 1, pageSize = 50) {
   })
 }
 
+export function useKnowledgeEvaluation() {
+  return useQuery({
+    queryKey: ['knowledgeEvaluation'],
+    queryFn: () => api.getKnowledgeEvaluation(),
+    refetchInterval: 60000,
+  })
+}
+
+export function useRunKnowledgeEvaluation() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => api.runKnowledgeEvaluation(),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledgeEvaluation'] }),
+  })
+}
+
 export function useUploadKnowledgeText() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: { title?: string; content: string; category?: string }) =>
       api.uploadKnowledgeText(data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledge'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeEvaluation'] })
+    },
   })
 }
 
@@ -101,7 +120,10 @@ export function useUploadKnowledgeFile() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (formData: FormData) => api.uploadKnowledgeFile(formData),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledge'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeEvaluation'] })
+    },
   })
 }
 
@@ -109,7 +131,10 @@ export function useDeleteKnowledge() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (docId: string) => api.deleteKnowledge(docId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['knowledge'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeEvaluation'] })
+    },
   })
 }
 
