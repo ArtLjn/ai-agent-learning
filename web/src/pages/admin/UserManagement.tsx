@@ -109,7 +109,9 @@ export function UserManagement() {
   }
 
   useEffect(() => {
-    void loadUsers()
+    queueMicrotask(() => {
+      void loadUsers()
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, appliedKeyword, roleFilter, statusFilter])
 

@@ -63,26 +63,29 @@ export function Settings() {
 
   useEffect(() => {
     let alive = true
-    setLoading(true)
-    api
-      .getSystemConfig()
-      .then((cfg) => {
-        if (alive) {
-          setData(cfg)
-          setError(null)
-        }
-      })
-      .catch((err: unknown) => {
-        if (!alive) return
-        if (err instanceof ApiError) {
-          setError(err.detail || `加载失败 (${err.status})`)
-        } else {
-          setError('加载系统配置失败')
-        }
-      })
-      .finally(() => {
-        if (alive) setLoading(false)
-      })
+    queueMicrotask(() => {
+      if (!alive) return
+      setLoading(true)
+      api
+        .getSystemConfig()
+        .then((cfg) => {
+          if (alive) {
+            setData(cfg)
+            setError(null)
+          }
+        })
+        .catch((err: unknown) => {
+          if (!alive) return
+          if (err instanceof ApiError) {
+            setError(err.detail || `加载失败 (${err.status})`)
+          } else {
+            setError('加载系统配置失败')
+          }
+        })
+        .finally(() => {
+          if (alive) setLoading(false)
+        })
+    })
     return () => {
       alive = false
     }

@@ -68,25 +68,28 @@ export default function SpanTreeView() {
   useEffect(() => {
     if (!activeTicketId) return
     let cancelled = false
-    setLoading(true)
-    setError(null)
-    api
-      .getAdminTrace(activeTicketId)
-      .then((data) => {
-        if (!cancelled) setTrace(data)
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return
-        if (err instanceof ApiError && err.status === 404) {
-          setError(`未找到工单 ${activeTicketId} 的 trace`)
-        } else {
-          setError(err instanceof Error ? err.message : '加载失败')
-        }
-        setTrace(null)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    queueMicrotask(() => {
+      if (cancelled) return
+      setLoading(true)
+      setError(null)
+      api
+        .getAdminTrace(activeTicketId)
+        .then((data) => {
+          if (!cancelled) setTrace(data)
+        })
+        .catch((err: unknown) => {
+          if (cancelled) return
+          if (err instanceof ApiError && err.status === 404) {
+            setError(`未找到工单 ${activeTicketId} 的 trace`)
+          } else {
+            setError(err instanceof Error ? err.message : '加载失败')
+          }
+          setTrace(null)
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    })
     return () => {
       cancelled = true
     }

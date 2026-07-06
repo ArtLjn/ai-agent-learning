@@ -62,7 +62,9 @@ export function PromptVersions() {
   }
 
   useEffect(() => {
-    loadVersions(agent)
+    queueMicrotask(() => {
+      void loadVersions(agent)
+    })
   }, [agent])
 
   async function reloadActive(messageOnSuccess: string) {
