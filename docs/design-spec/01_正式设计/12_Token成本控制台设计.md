@@ -1,9 +1,17 @@
 # Token 成本控制台设计
 
 > 版本：v2.0
-> 日期：2026-07-01
-> 状态：新建，复用 explore/farm-manager 资产
+> 日期：2026-07-01（**2026-07-05 修订**：去除按用户配额，改为系统级总统计）
+> 状态：**部分废弃** — 第 3/4/6 节关于 per-user 配额、users.token_*_limit 字段、超限降级、quota_service 的设计已移除。保留第 1/2/5/7 节作为系统级总统计的参考。
 > 所属模块：开发人员模块（详见 [13_开发人员工作台设计.md](./13_开发人员工作台设计.md)）
+
+> **2026-07-05 修订说明**：本系统定位为**服务性工单系统**（用户免费提交、系统统一承担 LLM 成本），不按用户分摊 token 用量、不设 per-user 配额。已落地的简化版实现：
+> - 后端：[`api/admin_stats.py`](../../../src/multi_agent_system/api/admin_stats.py) 的 `/tokens` `/tokens/daily` `/tokens/hourly` 三个只读接口，全部去除 `user_id` 参数
+> - 前端：[`web/src/pages/dev/TokenDashboard/`](../../../web/src/pages/dev/TokenDashboard/) 去除用户筛选 UI、配额卡，统计维度仅保留 model + call_type + 日期
+> - 已删除：`/admin/stats/quota/{user_id}` 路由、`getUserQuota` API、`UserQuotaResponse` 类型、`_get_period_range` / `_get_quota_limits` / `_lookup_per_user_quota` 辅助函数
+> - D-07 配额管理功能整个移除（开发人员模块从 7 个功能降为 6 个）
+>
+> 下文第 3/4/6 节中提及的 per-user 配额、quota_service、users 表 token_*_limit 字段、超限降级链路等设计**均未实施**，仅作为历史方案留存参考。
 
 ## 1. 设计目标
 
