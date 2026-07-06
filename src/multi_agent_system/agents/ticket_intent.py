@@ -60,7 +60,7 @@ class TicketIntentAgent:
         model: str,
         api_key: str | None = None,
         base_url: str | None = None,
-        task_type: str = "classify",
+        task_type: str = "intent",
     ) -> None:
         self._model = model
         self._api_key = api_key
@@ -364,4 +364,5 @@ class TicketIntentAgent:
             model=settings.llm_model,
             api_key=settings.llm_api_key,
             base_url=settings.llm_base_url,
+            task_type="intent",
         )
