@@ -1,6 +1,7 @@
 // D-04 Token 成本控制台主页面（shadcn/ui + Recharts 精简版）。
 // 设计来源：12 号文档第 5 节 + farm-manager TokenDashboard 948 行精简。
-// 范围：Token 总览 + 模型用量 + 趋势图 + 配额面板。
+// 范围：Token 总览 + 模型用量 + 趋势图 + call_type 分布。
+// v2.0 收敛：服务性工单系统 → 只统计系统级总用量，不按用户分摊/计费。
 
 import { useEffect, useMemo, useState } from 'react'
 import {
@@ -18,7 +19,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Select,
@@ -28,12 +28,11 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { RefreshCw as ReloadIcon } from 'lucide-react'
-import { api, ApiError } from '@/lib/api'
+import { api } from '@/lib/api'
 import type {
   TokenDailyResponse,
   TokenHourlyResponse,
   TokenSummaryResponse,
-  UserQuotaResponse,
 } from '@/types'
 import {
   CALL_TYPES,
@@ -64,15 +63,11 @@ const HOURS_24 = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')
 
 export default function TokenDashboard() {
   const [rangeMode, setRangeMode] = useState<RangeMode>('week')
-  const [userIdInput, setUserIdInput] = useState<string>('')
-  const [selectedUserId, setSelectedUserId] = useState<string | undefined>(undefined)
   const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined)
   const [summary, setSummary] = useState<TokenSummaryResponse | null>(null)
   const [daily, setDaily] = useState<TokenDailyResponse | null>(null)
   const [hourly, setHourly] = useState<TokenHourlyResponse | null>(null)
-  const [quota, setQuota] = useState<UserQuotaResponse | null>(null)
   const [loading, setLoading] = useState(false)
-  const [quotaLoading, setQuotaLoading] = useState(false)
   const [loadFailed, setLoadFailed] = useState(false)
   const [refreshKey, setRefreshKey] = useState(0)
 
@@ -81,64 +76,35 @@ export default function TokenDashboard() {
 
   useEffect(() => {
     let cancelled = false
-    setLoading(true)
-    setLoadFailed(false)
-    const params = {
-      days: range.days,
-      user_id: selectedUserId,
-    }
-    const hourlyParams = {
-      user_id: selectedUserId,
-      model: selectedModel,
-      date: todayStr,
-    }
-    Promise.all([
-      api.getTokenSummary(params),
-      api.getTokenDaily({ date: todayStr, user_id: selectedUserId }),
-      api.getTokenHourly(hourlyParams),
-    ])
-      .then(([sum, day, hr]) => {
-        if (!cancelled) {
-          setSummary(sum)
-          setDaily(day)
-          setHourly(hr)
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setLoadFailed(true)
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
+    queueMicrotask(() => {
+      if (cancelled) return
+      setLoading(true)
+      setLoadFailed(false)
+      const params = { days: range.days }
+      const hourlyParams = { model: selectedModel, date: todayStr }
+      Promise.all([
+        api.getTokenSummary(params),
+        api.getTokenDaily({ date: todayStr }),
+        api.getTokenHourly(hourlyParams),
+      ])
+        .then(([sum, day, hr]) => {
+          if (!cancelled) {
+            setSummary(sum)
+            setDaily(day)
+            setHourly(hr)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setLoadFailed(true)
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false)
+        })
+    })
     return () => {
       cancelled = true
     }
-  }, [range, selectedUserId, selectedModel, todayStr, refreshKey])
-
-  useEffect(() => {
-    let cancelled = false
-    if (!selectedUserId) {
-      setQuota(null)
-      return () => {
-        cancelled = true
-      }
-    }
-    setQuotaLoading(true)
-    api
-      .getUserQuota(selectedUserId)
-      .then((res) => {
-        if (!cancelled) setQuota(res)
-      })
-      .catch(() => {
-        if (!cancelled) setQuota(null)
-      })
-      .finally(() => {
-        if (!cancelled) setQuotaLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [selectedUserId])
+  }, [range, selectedModel, todayStr, refreshKey])
 
   const modelStats = useMemo(
     () =>
@@ -162,6 +128,12 @@ export default function TokenDashboard() {
         .reduce((sum, item) => sum + toNumber(item.total_tokens), 0),
     [daily, selectedModel],
   )
+
+  const avgTokensPerRequest = useMemo(() => {
+    const total = summary?.total_tokens ?? 0
+    const reqs = summary?.total_requests ?? 0
+    return reqs > 0 ? Math.round(total / reqs) : 0
+  }, [summary])
 
   const hourlyTrend = useMemo<TrendPoint[]>(() => {
     const rows = new Map<string, TrendPoint>()
@@ -216,8 +188,8 @@ export default function TokenDashboard() {
           <h1 className="text-xl font-semibold">Token 成本控制台</h1>
           <p className="text-sm text-muted-foreground">
             {range.label} · {range.startDate} 至 {range.endDate}
-            {selectedUserId ? ` · 用户：${selectedUserId}` : ' · 全部用户'}
-            {selectedModel ? ` · 模型：${selectedModel}` : ''}
+            {selectedModel ? ` · 模型：${selectedModel}` : ' · 全部模型'}
+            <span className="ml-2 text-xs text-muted-foreground/70">（系统级总统计）</span>
           </p>
         </div>
         <Badge variant={loadFailed ? 'destructive' : 'default'}>
@@ -227,26 +199,7 @@ export default function TokenDashboard() {
 
       {/* 筛选条 */}
       <Card>
-        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-4">
-          <div className="space-y-1.5">
-            <label className="text-xs text-muted-foreground">用户 ID</label>
-            <div className="flex gap-2">
-              <Input
-                placeholder="留空查看全部"
-                value={userIdInput}
-                onChange={(e) => setUserIdInput(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') setSelectedUserId(userIdInput.trim() || undefined)
-                }}
-              />
-              <Button
-                variant="secondary"
-                onClick={() => setSelectedUserId(userIdInput.trim() || undefined)}
-              >
-                应用
-              </Button>
-            </div>
-          </div>
+        <CardContent className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="space-y-1.5">
             <label className="text-xs text-muted-foreground">模型</label>
             <Select
@@ -296,13 +249,28 @@ export default function TokenDashboard() {
         </CardContent>
       </Card>
 
-      {/* 顶部 4 统计卡 */}
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+      {/* 顶部 3 统计卡（服务性工单系统：不按用户分摊，无配额卡） */}
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
         <StatCard label={`总 Token（${range.label}）`} value={totalTokens} loading={loading} />
         <StatCard label={`总请求（${range.label}）`} value={totalRequests} loading={loading} />
-        <StatCard label="今日 Token" value={todayUsage} loading={loading} />
-        <QuotaCard quota={quota} loading={quotaLoading} hasSelected={!!selectedUserId} />
+        <StatCard label="平均 Token / 请求" value={avgTokensPerRequest} loading={loading} />
       </div>
+
+      {/* 今日 Token 单独一行（强调当下用量） */}
+      <Card size="sm">
+        <CardContent className="flex items-center justify-between">
+          <div>
+            <div className="text-xs text-muted-foreground">今日 Token 用量</div>
+            <div className="mt-1 text-3xl font-semibold tabular-nums">
+              {loading ? '—' : formatCompactNumber(todayUsage)}
+            </div>
+          </div>
+          <div className="text-right text-xs text-muted-foreground">
+            <div>统计粒度：按 model + call_type</div>
+            <div>数据源：token_daily_stats</div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* 模型用量列表 */}
       <Card>
@@ -367,55 +335,6 @@ function StatCard({
         ) : (
           <div className="mt-1 text-2xl font-semibold tabular-nums">
             {formatCompactNumber(value)}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  )
-}
-
-function QuotaCard({
-  quota,
-  loading,
-  hasSelected,
-}: {
-  quota: UserQuotaResponse | null
-  loading: boolean
-  hasSelected: boolean
-}) {
-  const monthlyPercent =
-    quota && quota.monthly_limit > 0
-      ? Math.min(100, Math.round((quota.monthly_usage / quota.monthly_limit) * 100))
-      : 0
-  return (
-    <Card size="sm">
-      <CardContent>
-        <div className="text-xs text-muted-foreground">月配额使用率</div>
-        {loading ? (
-          <Skeleton className="mt-2 h-7 w-24" />
-        ) : !hasSelected || !quota ? (
-          <div className="mt-1 text-sm text-muted-foreground">
-            {hasSelected ? '该用户暂无配额数据' : '选择用户查看配额'}
-          </div>
-        ) : (
-          <div className="mt-1 space-y-1">
-            <div className="text-2xl font-semibold tabular-nums">{monthlyPercent}%</div>
-            <div className="text-xs text-muted-foreground tabular-nums">
-              {formatCompactNumber(quota.monthly_usage)} /{' '}
-              {formatCompactNumber(quota.monthly_limit)}
-            </div>
-            <div className="h-1.5 w-full overflow-hidden rounded bg-muted">
-              <div
-                className={
-                  monthlyPercent >= 80
-                    ? 'h-full bg-rose-500'
-                    : monthlyPercent >= 60
-                      ? 'h-full bg-amber-500'
-                      : 'h-full bg-emerald-500'
-                }
-                style={{ width: `${monthlyPercent}%` }}
-              />
-            </div>
           </div>
         )}
       </CardContent>
@@ -538,9 +457,4 @@ function EmptyBlock({ description }: { description: string }) {
       {description}
     </div>
   )
-}
-
-// 处理 ApiError 的友好提示（页面错误兜底）
-export function isTokenDashboardLoadError(err: unknown): err is ApiError {
-  return err instanceof ApiError
 }

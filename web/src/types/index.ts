@@ -665,7 +665,6 @@ export interface TokenSummaryResponse {
 }
 
 export interface TokenDailyItem {
-  user_id: string | null
   model: string
   call_type: string
   ticket_id: string | null
@@ -684,7 +683,6 @@ export interface TokenDailyResponse {
 export interface TokenHourlyItem {
   date: string
   hour: string | null
-  user_id: string | null
   model: string
   call_type: string
   prompt_tokens: number
@@ -699,16 +697,4 @@ export interface TokenHourlyResponse {
   hours: string[]
   total_tokens: number
   total_requests: number
-}
-
-export interface UserQuotaResponse {
-  user_id: string
-  monthly_limit: number
-  weekly_limit: number
-  monthly_usage: number
-  weekly_usage: number
-  monthly_remaining: number
-  weekly_remaining: number
-  period_start: { month: string; week: string }
-  period_end: { month: string; week: string }
 }

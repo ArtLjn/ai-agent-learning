@@ -1,10 +1,9 @@
 """D-04 Token 成本控制台 admin API 测试。
 
-覆盖：
+覆盖（系统级总统计，不按用户分摊）：
 - GET /api/admin/stats/tokens    近 N 天汇总（按 model + call_type）
 - GET /api/admin/stats/tokens/daily    指定日期明细
 - GET /api/admin/stats/tokens/hourly    24 小时分布
-- GET /api/admin/stats/quota/{user_id}    用户配额状态
 """
 
 from __future__ import annotations
@@ -183,42 +182,3 @@ class TestTokenHourly:
         data = resp.json()
         # 至少当日 total_tokens 应反映出来
         assert data["total_tokens"] == 400
-
-
-class TestUserQuota:
-    """GET /api/admin/stats/quota/{user_id} 用户配额状态。"""
-
-    def test_quota_for_user_with_usage(
-        self, client: TestClient, app: FastAPI
-    ):
-        """返回月/周配额 + 当前用量（本任务只读，不实现限流）。"""
-        today = date.today()
-        _accumulate(
-            app,
-            user_id="u-quota", date_value=today, model="glm-4.5-air",
-            call_type="process", ticket_id="TK-1",
-            prompt_tokens=1000, completion_tokens=500,
-        )
-
-        resp = client.get("/api/admin/stats/quota/u-quota")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["user_id"] == "u-quota"
-        assert "monthly_limit" in data
-        assert "weekly_limit" in data
-        assert "monthly_usage" in data
-        assert "weekly_usage" in data
-        assert data["monthly_usage"] >= 1500
-
-    def test_quota_unknown_user_returns_default(
-        self, client: TestClient
-    ):
-        """未配置 per-user 覆写时返回系统默认配额。"""
-        resp = client.get("/api/admin/stats/quota/u-UNKNOWN")
-        assert resp.status_code == 200
-        data = resp.json()
-        assert data["user_id"] == "u-UNKNOWN"
-        assert data["monthly_usage"] == 0
-        assert data["weekly_usage"] == 0
-        # 系统默认配额是合理非零值
-        assert data["monthly_limit"] > 0
