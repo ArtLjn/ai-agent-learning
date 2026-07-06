@@ -90,6 +90,14 @@ def _promote_to_admin(client: TestClient, app: FastAPI, user_id: str) -> None:
     _relogin(client, updated["username"])
 
 
+def _promote_to_developer(client: TestClient, app: FastAPI, user_id: str) -> None:
+    updated = client.portal.call(
+        app.state.db_manager.update_user_role, user_id, "developer"
+    )
+    assert updated is not None and updated["role"] == "developer"
+    _relogin(client, updated["username"])
+
+
 def _logout(client: TestClient) -> None:
     client.post("/api/auth/logout")
 
@@ -126,6 +134,17 @@ def test_admin_role_returns_200(client: TestClient, app: FastAPI) -> None:
     assert "rag_service" in body
     assert "database" in body
     assert "auth" in body
+
+
+def test_developer_role_returns_200(client: TestClient, app: FastAPI) -> None:
+    """developer 角色可查看系统配置。"""
+    user = _register(client, "thedeveloper")
+    _promote_to_developer(client, app, user["user_id"])
+
+    resp = client.get("/api/admin/config")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["_meta"]["readonly"] is True
 
 
 # ============================================================

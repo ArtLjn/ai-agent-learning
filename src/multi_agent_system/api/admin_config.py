@@ -1,6 +1,6 @@
 """A-06 系统配置查看（只读脱敏）。
 
-挂在 /api/admin 前缀下，整组要求 admin 角色。
+挂在 /api/admin 前缀下，允许 admin / developer 查看。
 
 设计要点：
 - 严格只读：不提供任何修改接口（毕设范围）
@@ -106,7 +106,7 @@ async def _build_rag_service_view(settings: Any) -> dict[str, Any]:
 @router.get("")
 async def get_system_config(
     request: Request,
-    _admin: dict = Depends(require_role("admin")),
+    _role: dict = Depends(require_role("admin", "developer")),
 ) -> dict[str, Any]:
     """返回 6 类配置摘要（只读，密钥字段省略）。
 
