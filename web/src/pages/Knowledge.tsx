@@ -32,8 +32,12 @@ import {
   CheckCircle2,
   FileText,
   Layers,
+  PackageCheck,
+  ShieldCheck,
   RefreshCw,
   SearchCheck,
+  Send,
+  TimerReset,
   Trash2,
   Upload,
 } from 'lucide-react'
@@ -45,6 +49,17 @@ type UploadProgressState = {
   percent: number
   status: 'running' | 'success' | 'error'
   fileName?: string
+}
+
+type KnowledgePublishStatus = 'pending' | 'published' | 'rejected'
+
+type KnowledgePublishInfo = {
+  status: KnowledgePublishStatus
+  label: string
+  reviewer: string
+  publishedAt: string
+  note: string
+  source: 'metadata' | 'default'
 }
 
 const sampleDocs = [
@@ -92,6 +107,7 @@ export function Knowledge() {
   const deleteMutation = useDeleteKnowledge()
 
   const documents = useMemo(() => data?.documents || [], [data?.documents])
+  const publishStats = useMemo(() => buildPublishStats(documents), [documents])
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
   const evaluationReport = evaluation.data?.report ?? null
@@ -225,6 +241,12 @@ export function Knowledge() {
         loading={evaluation.isLoading}
         running={runEvaluation.isPending}
         onRun={handleRunEvaluation}
+      />
+
+      <KnowledgePublishPanel
+        documents={documents}
+        total={total}
+        stats={publishStats}
       />
 
       <div className="grid grid-cols-12 gap-4">
@@ -625,6 +647,201 @@ function EvaluationPanel({
   )
 }
 
+function KnowledgePublishPanel({
+  documents,
+  total,
+  stats,
+}: {
+  documents: KnowledgeDocument[]
+  total: number
+  stats: ReturnType<typeof buildPublishStats>
+}) {
+  const recent = documents
+    .slice()
+    .sort((a, b) => (b.ingested_at || '').localeCompare(a.ingested_at || ''))
+    .slice(0, 4)
+
+  return (
+    <Card className="bg-card border-border">
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              知识入库审核与发布
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              展示文档从提交、审核到发布的状态；当前接口未返回审核字段时按已发布元数据展示
+            </p>
+          </div>
+          <Badge variant="outline" className="border-primary/30 bg-primary/10 text-primary">
+            A-08 发布看板
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-4 gap-3">
+          <PublishMetric
+            label="总文档"
+            value={String(total)}
+            icon={BookOpen}
+            tone="primary"
+          />
+          <PublishMetric
+            label="待审核"
+            value={String(stats.pending)}
+            icon={TimerReset}
+            tone={stats.pending > 0 ? 'warning' : 'muted'}
+          />
+          <PublishMetric
+            label="已发布"
+            value={String(stats.published)}
+            icon={PackageCheck}
+            tone="success"
+          />
+          <PublishMetric
+            label="可检索分块"
+            value={String(stats.chunks)}
+            icon={Layers}
+            tone="primary"
+          />
+        </div>
+
+        <div className="mt-4 grid grid-cols-[1.25fr_1fr] gap-4">
+          <div className="rounded-md border border-border bg-background p-3">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <div className="text-xs font-medium text-muted-foreground">发布流程</div>
+              <Badge variant="outline" className="border-0 bg-secondary text-[10px]">
+                只读演示
+              </Badge>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              <PublishStage
+                index="01"
+                title="提交入库"
+                detail="文本或文件进入 rag-service 解析队列"
+                active={total > 0}
+              />
+              <PublishStage
+                index="02"
+                title="审核确认"
+                detail="管理员核对来源、分类、分块质量"
+                active={stats.pending > 0}
+                warning={stats.pending > 0}
+              />
+              <PublishStage
+                index="03"
+                title="发布检索"
+                detail="写入 Qdrant 后供工单处理引用"
+                active={stats.published > 0}
+                success={stats.published > 0}
+              />
+            </div>
+          </div>
+
+          <div className="rounded-md border border-border bg-background p-3">
+            <div className="mb-3 text-xs font-medium text-muted-foreground">最近发布</div>
+            {recent.length === 0 ? (
+              <div className="flex h-[94px] items-center justify-center text-xs text-muted-foreground">
+                暂无文档发布记录
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {recent.map((doc) => {
+                  const publish = getKnowledgePublishInfo(doc)
+                  return (
+                    <div key={doc.doc_id} className="flex items-center gap-2 text-xs">
+                      <span className={publishDotClass(publish.status)} />
+                      <span className="min-w-0 flex-1 truncate text-foreground">
+                        {doc.source || doc.doc_id}
+                      </span>
+                      <span className="shrink-0 text-muted-foreground">
+                        {formatDateTime(publish.publishedAt || doc.ingested_at)}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function PublishMetric({
+  label,
+  value,
+  icon: Icon,
+  tone,
+}: {
+  label: string
+  value: string
+  icon: typeof BookOpen
+  tone: 'primary' | 'success' | 'warning' | 'muted'
+}) {
+  const toneClass = {
+    primary: 'text-primary bg-primary/10',
+    success: 'text-success bg-success/10',
+    warning: 'text-warning bg-warning/10',
+    muted: 'text-muted-foreground bg-secondary',
+  }[tone]
+
+  return (
+    <div className="rounded-md border border-border bg-background px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] text-muted-foreground">{label}</div>
+        <span className={`rounded p-1 ${toneClass}`}>
+          <Icon className="h-3.5 w-3.5" />
+        </span>
+      </div>
+      <div className="mt-1 font-mono text-lg font-semibold">{value}</div>
+    </div>
+  )
+}
+
+function PublishStage({
+  index,
+  title,
+  detail,
+  active,
+  warning,
+  success,
+}: {
+  index: string
+  title: string
+  detail: string
+  active: boolean
+  warning?: boolean
+  success?: boolean
+}) {
+  const statusClass = success
+    ? 'border-success/35 bg-success/5'
+    : warning
+      ? 'border-warning/35 bg-warning/5'
+      : active
+        ? 'border-primary/35 bg-primary/5'
+        : 'border-border bg-card'
+
+  return (
+    <div className={`min-h-[92px] rounded-md border p-3 ${statusClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="font-mono text-[10px] text-muted-foreground">{index}</span>
+        {success ? (
+          <CheckCircle2 className="h-3.5 w-3.5 text-success" />
+        ) : warning ? (
+          <TimerReset className="h-3.5 w-3.5 text-warning" />
+        ) : (
+          <Send className="h-3.5 w-3.5 text-primary" />
+        )}
+      </div>
+      <div className="mt-2 text-sm font-medium">{title}</div>
+      <div className="mt-1 text-[11px] leading-4 text-muted-foreground">{detail}</div>
+    </div>
+  )
+}
+
 function MetricTile({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-md border border-border bg-background px-3 py-2">
@@ -647,6 +864,55 @@ function formatNumber(value: number | undefined) {
 function formatDateTime(value: string | undefined) {
   if (!value) return '-'
   return value.slice(0, 19).replace('T', ' ')
+}
+
+function buildPublishStats(documents: KnowledgeDocument[]) {
+  return documents.reduce(
+    (acc, doc) => {
+      const publish = getKnowledgePublishInfo(doc)
+      acc[publish.status] += 1
+      acc.chunks += doc.chunk_count || 0
+      return acc
+    },
+    { pending: 0, published: 0, rejected: 0, chunks: 0 }
+  )
+}
+
+function getKnowledgePublishInfo(doc: KnowledgeDocument): KnowledgePublishInfo {
+  const extra = doc.extra ?? {}
+  const rawStatus = String(
+    extra.publish_status ??
+    extra.review_status ??
+    extra.status ??
+    ''
+  ).toLowerCase()
+  const status: KnowledgePublishStatus =
+    rawStatus === 'pending' || rawStatus === 'reviewing'
+      ? 'pending'
+      : rawStatus === 'rejected'
+        ? 'rejected'
+        : 'published'
+
+  return {
+    status,
+    label: status === 'pending' ? '待审核' : status === 'rejected' ? '已驳回' : '已发布',
+    reviewer: String(extra.reviewer ?? extra.published_by ?? extra.approved_by ?? 'system'),
+    publishedAt: String(extra.published_at ?? extra.reviewed_at ?? doc.ingested_at ?? ''),
+    note: String(extra.publish_note ?? extra.review_note ?? extra.note ?? '已写入向量库，可被工单处理流程检索引用'),
+    source: rawStatus ? 'metadata' : 'default',
+  }
+}
+
+function publishBadgeClass(status: KnowledgePublishStatus): string {
+  if (status === 'pending') return 'border-warning/30 bg-warning/10 text-warning'
+  if (status === 'rejected') return 'border-destructive/30 bg-destructive/10 text-destructive'
+  return 'border-success/30 bg-success/10 text-success'
+}
+
+function publishDotClass(status: KnowledgePublishStatus): string {
+  if (status === 'pending') return 'h-2 w-2 shrink-0 rounded-full bg-warning'
+  if (status === 'rejected') return 'h-2 w-2 shrink-0 rounded-full bg-destructive'
+  return 'h-2 w-2 shrink-0 rounded-full bg-success'
 }
 
 function getUploadStage(progress: UploadProgressState) {
@@ -702,6 +968,8 @@ function KnowledgeListItem({
   onDelete: () => void
   deleting: boolean
 }) {
+  const publish = getKnowledgePublishInfo(doc)
+
   return (
     <div className="group flex items-start gap-3 rounded-md border border-border bg-background p-3 transition-colors hover:border-primary/50">
       <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
@@ -713,6 +981,9 @@ function KnowledgeListItem({
           <Badge variant="outline" className="shrink-0 border-0 bg-primary/15 px-1.5 py-0 text-[10px] text-primary">
             {doc.category || 'uncategorized'}
           </Badge>
+          <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] ${publishBadgeClass(publish.status)}`}>
+            {publish.label}
+          </Badge>
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground/80">
           <span className="flex items-center gap-0.5">
@@ -723,6 +994,11 @@ function KnowledgeListItem({
           {doc.ingested_at && (
             <span>{doc.ingested_at.slice(0, 19).replace('T', ' ')}</span>
           )}
+          <span>审核人: {publish.reviewer}</span>
+          {publish.source === 'default' && <span>演示默认发布</span>}
+        </div>
+        <div className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">
+          {publish.note}
         </div>
       </div>
       <Button
