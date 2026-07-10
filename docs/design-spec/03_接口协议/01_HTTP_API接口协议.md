@@ -1,16 +1,16 @@
 # HTTP API 接口协议
 
-> 版本：v2.0
-> 日期：2026-07-01
-> 状态：v2.0 新增「rag-service HTTP API」与「主系统 v2.0 新增 HTTP API」两章，对齐双项目 + 4 大模块架构
-> 关联设计：[11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) · [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) · [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md)
+> 版本：v2.1
+> 日期：2026-07-09
+> 状态：v2.1 对齐业务架构梳理；移除 per-user 配额接口口径，Token 仅保留系统级统计接口
+> 关联设计：[业务架构梳理](../00_预设计/04_业务架构梳理.md) · [11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) · [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) · [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md)
 
 ## 0. v2.0 变更摘要
 
 | 变更类型 | 内容 |
 | --- | --- |
 | 新增独立项目 | `rag-service`（端口 8001），提供 `/parse` `/ingest` `/retrieve` `/rerank` `/collections/{name}/documents` `/health` |
-| 主系统新增 API（开发人员模块） | `/api/admin/traces/*`、`/api/admin/prompts/*`、`/api/admin/rag/debug`、`/api/admin/stats/tokens*`、`/api/admin/stats/quota/{user_id}` |
+| 主系统新增 API（开发人员模块） | `/api/admin/traces/*`、`/api/admin/prompts/*`、`/api/admin/rag/debug`、`/api/admin/stats/tokens*` |
 | 主系统新增 API（管理员模块） | `/api/admin/users`、`PATCH /api/admin/users/{user_id}`、`/api/admin/stats/adoption` |
 | 通信契约 | 主系统通过 `tools/rag_client.py`（待建）调用 rag-service，详见 [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) 第 10 章 |
 
@@ -831,43 +831,24 @@ rag-service 不可用时返回 503，主系统不缓存降级结果（调试场�
 | --- | --- | --- | --- |
 | `days` | int | 否 | 默认 7（最近 N 天 × 24 小时矩阵） |
 
-#### 10.1.10 GET /api/admin/stats/quota/{user_id}
-
-查询某用户的配额状态。响应：
-
-```json
-{
-  "user_id": "U001",
-  "monthly_usage": 85000,
-  "monthly_limit": 200000,
-  "monthly_remaining": 115000,
-  "weekly_usage": 22000,
-  "weekly_limit": 50000,
-  "weekly_remaining": 28000,
-  "reset_at": "2026-08-01T00:00:00"
-}
-```
-
-`monthly_limit` / `weekly_limit` 优先取 `users.token_monthly_limit` / `users.token_weekly_limit`，为 NULL 时回落到 `config.yaml` 的 `token_quota.*` 默认值。
-
 ### 10.2 管理员模块
 
 #### 10.2.1 GET /api/admin/users
 
-用户列表（含配额覆写字段）。查询参数 `limit` / `offset` / `keyword`。响应每项含 `user_id` `name` `token_monthly_limit` `token_weekly_limit` `created_at`。
+用户列表。查询参数 `limit` / `offset` / `keyword` / `status`。响应每项含 `user_id` `username` `nickname` `status` `role` `created_at`。
 
 #### 10.2.2 PATCH /api/admin/users/{user_id}
 
-调整用户配额覆写。请求体：
+更新用户状态或角色。请求体：
 
 ```json
 {
-  "token_monthly_limit": 300000,
-  "token_weekly_limit": 75000
+  "status": "banned",
+  "role": "user"
 }
 ```
 
-字段传 `null` 表示清除覆写、回落到默认配额。响应返回更新后的用户对象。
+响应返回更新后的用户对象。封禁用户后，该用户不能继续提交工单。
 
 #### 10.2.3 GET /api/admin/stats/adoption
 
@@ -894,7 +875,7 @@ rag-service 不可用时返回 503，主系统不缓存降级结果（调试场�
 
 - [01_正式设计/09_人工审核工作台设计.md](../01_正式设计/09_人工审核工作台设计.md) — 管理员模块（鉴权 `require_admin`、人工审核闭环）
 - [01_正式设计/11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) — rag-service 完整设计（v2.0 新增）
-- [01_正式设计/12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) — `/api/admin/stats/tokens*` 与配额设计（v2.0 新增）
+- [01_正式设计/12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) — `/api/admin/stats/tokens*` 系统级 Token 成本统计（v2.1 口径）
 - [01_正式设计/13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md) — 开发人员模块整体设计（v2.0 新增）
 - [02_WebSocket实时推送协议.md](./02_WebSocket实时推送协议.md) — 工单状态实时推送
 - [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) — Agent 输出、RAG Client、决策点五元组、Token 累加契约

@@ -1,29 +1,27 @@
 # Token 成本控制台设计
 
-> 版本：v2.0
-> 日期：2026-07-01（**2026-07-05 修订**：去除按用户配额，改为系统级总统计）
-> 状态：**部分废弃** — 第 3/4/6 节关于 per-user 配额、users.token_*_limit 字段、超限降级、quota_service 的设计已移除。保留第 1/2/5/7 节作为系统级总统计的参考。
+> 版本：v2.1
+> 日期：2026-07-09
+> 状态：现行方案为系统级 Token 成本统计；不做用户计费、per-user 配额、超限自动降级
 > 所属模块：开发人员模块（详见 [13_开发人员工作台设计.md](./13_开发人员工作台设计.md)）
 
-> **2026-07-05 修订说明**：本系统定位为**服务性工单系统**（用户免费提交、系统统一承担 LLM 成本），不按用户分摊 token 用量、不设 per-user 配额。已落地的简化版实现：
+> **现行口径**：本系统定位为**服务性工单系统**（用户免费提交、系统统一承担 LLM 成本），Token 控制台只用于开发运维和论文成本分析，不作为用户计费或配额系统。已落地的简化版实现：
 > - 后端：[`api/admin_stats.py`](../../../src/multi_agent_system/api/admin_stats.py) 的 `/tokens` `/tokens/daily` `/tokens/hourly` 三个只读接口，全部去除 `user_id` 参数
 > - 前端：[`web/src/pages/dev/TokenDashboard/`](../../../web/src/pages/dev/TokenDashboard/) 去除用户筛选 UI、配额卡，统计维度仅保留 model + call_type + 日期
 > - 已删除：`/admin/stats/quota/{user_id}` 路由、`getUserQuota` API、`UserQuotaResponse` 类型、`_get_period_range` / `_get_quota_limits` / `_lookup_per_user_quota` 辅助函数
 > - D-07 配额管理功能整个移除（开发人员模块从 7 个功能降为 6 个）
->
-> 下文第 3/4/6 节中提及的 per-user 配额、quota_service、users 表 token_*_limit 字段、超限降级链路等设计**均未实施**，仅作为历史方案留存参考。
 
 ## 1. 设计目标
 
-Token 成本控制台是 v2.0「开发人员模块」的核心子模块，三个目标互不重叠：
+Token 成本控制台是「智能流程运维模块」的核心子模块，三个目标互不重叠：
 
 | 目标 | 说明 |
 | --- | --- |
 | 论文成本数据 | 答辩要求"答辩时给出真实成本数字"。本控制台按日/周/月、按 `call_type`/`model` 沉淀 token 用量与折算成本（人民币），论文成本章节直接取数 |
-| 防止 demo 烧爆 | 每用户默认月配额 + 周配额；超限走降级路径（规则兜底 + Qdrant 检索关闭），保证答辩演示不会因 LLM 失控刷爆 key |
+| 运维成本观测 | 开发人员查看系统整体模型消耗，发现异常高耗调用、模型分布异常或成本趋势异常 |
 | 修复 v1.1 P0 bug | 现状 `traces.total_tokens` 永远为 0（详见 `core/trace.py:141,166`），`add_token_usage` 已有占位实现但未在调用链中触发。本设计在 `core/trace.py` 的 span 收尾路径上接入累加，闭环修复 |
 
-附加约束：本控制台是**离线聚合 + 定时统计**，不做实时流式计费，不做多模型单位成本对比，不做付费套餐——这些超出毕设范围（详见第 9 节）。
+附加约束：本控制台是**离线聚合 + 系统级统计**，不做实时流式计费、不做用户计费、不做 per-user 配额、不做付费套餐。
 
 ## 2. 复用清单
 
@@ -31,11 +29,10 @@ Token 成本控制台是 v2.0「开发人员模块」的核心子模块，三个
 
 | 源文件 | 行数 | 复用方式 | 适配点 |
 | --- | --- | --- | --- |
-| `backend/app/models/token_stats.py` | 43 | 直接复用 ORM 模型结构 | 去掉 `farm_id` 外键；唯一约束改为 `user_id + date + model + call_type` |
-| `backend/app/services/quota_service.py` | 155 | 复用核心逻辑（`get_month_range` / `get_week_range` / `check_user_quota`） | 删 `check_quota(farm_id)`；改为按 `user_id` 直接检查；`Session` 改为 `AsyncSession` |
+| `backend/app/models/token_stats.py` | 43 | 复用 ORM 模型结构 | 去掉 `farm_id` 外键；底层保留 user_id 作为回溯字段，前端不按用户展示或计费 |
 | `backend/app/infra/trace_dao.py:60-109` | 50 | 复用 UPSERT 累加逻辑 | 迁到主系统 `core/trace.py` 的 `_finalize_span`；UPSERT 用 MySQL `ON DUPLICATE KEY UPDATE` |
-| `backend/app/api/admin_stats.py` | 222 | 复用 4 个路由的查询结构 | 路由前缀 `/admin/stats` → `/api/admin/stats`；删 `farm_id` 过滤；`call_type` 枚举对齐主系统 |
-| `admin-web/src/pages/TokenDashboard/index.tsx` | 948 | 直接拷贝 | API 路径前缀对齐主系统 |
+| `backend/app/api/admin_stats.py` | 222 | 复用统计查询结构 | 路由前缀 `/admin/stats` → `/api/admin/stats`；删 `farm_id` 与用户配额相关接口；`call_type` 枚举对齐主系统 |
+| `admin-web/src/pages/TokenDashboard/index.tsx` | 948 | 选择性迁移 | API 路径前缀对齐主系统；用户筛选与配额面板不迁入当前版本 |
 | `admin-web/src/pages/TokenDashboard/dashboard-ui.tsx` | 子组件 | 直接拷贝 | 无适配 |
 | `admin-web/src/pages/TokenDashboard/dashboard-shared.ts` | 共享样式常量 | 直接拷贝 | 无适配 |
 
@@ -55,7 +52,7 @@ from .db import Base
 
 
 class TokenDailyStats(Base):
-    """按日汇总的 Token 用量统计（按 user_id + date + model + call_type 唯一）。"""
+    """按日汇总的 Token 用量统计（底层保留 user_id 仅用于回溯）。"""
 
     __tablename__ = "token_daily_stats"
     __table_args__ = (
@@ -69,7 +66,7 @@ class TokenDailyStats(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(String(36), nullable=True, index=True)  # nullable：系统/未登录调用
+    user_id = Column(String(36), nullable=True, index=True)  # 仅用于回溯，不作为计费维度
     date = Column(Date, nullable=False)
     model = Column(String(100), nullable=False)               # 如 glm-4.6 / glm-4.5-air
     call_type = Column(String(20), nullable=False)            # 见第 7 节枚举
@@ -86,26 +83,13 @@ class TokenDailyStats(Base):
 > 与 farm-manager 的差异：
 > 1. **去掉 `farm_id`**，主系统无 farm 概念。
 > 2. **新增 `ticket_id`**：主系统以工单为追踪主轴，便于按工单回溯成本。
-> 3. **`user_id` 改为 nullable**：CoordinatorAgent 等系统级调用不归属任何用户，但仍需计费。
+> 3. **`user_id` 仅用于回溯和兼容聚合键**：统计展示不按用户分摊成本，也不提供 per-user 配额接口。
 
-### 3.2 `users` 表新增字段
-
-主系统现有 `users` 表（见 [05_数据存储设计.md](./05_数据存储设计.md)）缺少配额字段，需 `ALTER TABLE` 追加：
-
-```sql
-ALTER TABLE users
-    ADD COLUMN token_monthly_limit INT NULL COMMENT 'per-user 月配额覆写（NULL 走默认）',
-    ADD COLUMN token_weekly_limit  INT NULL COMMENT 'per-user 周配额覆写（NULL 走默认）';
-```
-
-两个字段均允许 `NULL`，表示走系统默认配额（配置在 `config.yaml` 的 `token_quota` 段）。只有当某用户需要差异化配额时才写入具体值。
-
-### 3.3 ER 图
+### 3.2 ER 图
 
 ```mermaid
 erDiagram
     users ||--o{ tickets : submits
-    users ||--o{ token_daily_stats : consumes
     tickets ||--o{ traces : records
     tickets ||--o{ token_daily_stats : generates
     traces ||--o{ spans : contains
@@ -113,8 +97,6 @@ erDiagram
     users {
         string user_id PK
         string name
-        int token_monthly_limit "新增"
-        int token_weekly_limit "新增"
     }
 
     token_daily_stats {
@@ -142,20 +124,7 @@ erDiagram
 
 ## 4. 后端实现
 
-### 4.1 配额服务 `services/quota_service.py`
-
-复用 farm-manager 的 `quota_service.py`，主要适配：
-
-| 原版 | 适配版 |
-| --- | --- |
-| `check_quota(farm_id) -> bool` | 删除 |
-| `check_user_quota(user_id, db: Session)` | 改为 `async def check_user_quota(user_id, db: AsyncSession)` |
-| `get_period_usage` 用同步 query | 改为 `select(func.coalesce(func.sum(...)))` + `await db.execute(...)` |
-| 配额默认值从 `settings.token_quota` | 同样从 `config.yaml` 的 `token_quota.{monthly_limit, weekly_limit, over_quota_action}` |
-
-核心保留：`get_month_range` / `get_week_range` / `QuotaCheckResult` 数据类、per-user 覆写优先级逻辑。
-
-### 4.2 `core/trace.py` 修复点（v1.1 P0 bug 闭环）
+### 4.1 `core/trace.py` 修复点（v1.1 P0 bug 闭环）
 
 现状（`src/multi_agent_system/core/trace.py`）：
 
@@ -203,16 +172,15 @@ ON DUPLICATE KEY UPDATE
 
 > 关键约束：每个 Agent 在调用 LLM 前必须把 `call_type` 写入 `span.attrs`，否则会被默认归为 `process`，污染统计。
 
-### 4.3 API 路由 `api/admin_stats.py`
+### 4.2 API 路由 `api/admin_stats.py`
 
-复用 farm-manager 的 4 个路由，统一前缀 `/api/admin/stats`：
+复用 farm-manager 的统计路由结构，统一前缀 `/api/admin/stats`：
 
 | 路由 | 用途 | 关键查询 |
 | --- | --- | --- |
 | `GET /api/admin/stats/tokens` | 近 N 天用量汇总（按 model × call_type 分组） | 直接聚合 `token_daily_stats` |
 | `GET /api/admin/stats/tokens/daily` | 指定日期明细 | `WHERE date = ?` |
 | `GET /api/admin/stats/tokens/hourly` | 按小时热力图 | 从 `spans.metadata_` 取真实 LLM 调用，按 `start_time` 的小时分桶 |
-| `GET /api/admin/stats/quota/{user_id}` | 查询某用户配额状态 | 调用 `check_user_quota` 返回 `{monthly_usage, monthly_limit, monthly_remaining, weekly_*, reset_at}` |
 
 所有路由统一 `Depends(require_admin)`（管理员鉴权，详见 [09_人工审核工作台设计.md](./09_人工审核工作台设计.md) 的鉴权设计）。
 
@@ -226,7 +194,7 @@ ON DUPLICATE KEY UPDATE
 
 ```
 web/src/pages/TokenDashboard/
-├── index.tsx           # 主页面（948 行，含筛选/趋势/热力图/模型用量/配额面板）
+├── index.tsx           # 主页面（含筛选/趋势/热力图/模型用量）
 ├── dashboard-ui.tsx    # 子组件（ChartCard / HeatmapSection / ModelUsageRows / TrendChart）
 └── dashboard-shared.ts # 颜色常量、HOURS_24、panelStyle、数字格式化函数
 ```
@@ -238,41 +206,30 @@ web/src/pages/TokenDashboard/
 | `./api/admin` 的 `getTokenSummary()` | `GET /api/admin/stats/tokens` |
 | `getDailyTokenStats()` | `GET /api/admin/stats/tokens/daily` |
 | `getHourlyTokenStats()` | `GET /api/admin/stats/tokens/hourly` |
-| `usersApi.getQuota(id)` | `GET /api/admin/stats/quota/{user_id}` |
-
-实现方式：在 `web/src/api/admin.ts` 新增 4 个调用函数，签名与 farm-manager 保持一致，仅修改 baseURL。`TokenDashboard/index.tsx` 中的 import 路径不需要改。
+实现方式：在 `web/src/api/admin.ts` 新增 3 个调用函数，签名与 farm-manager 统计接口保持接近，仅修改 baseURL 并移除配额相关调用。
 
 ### 5.3 与现有 `AgentMonitor.tsx` 的关系
 
 | 维度 | `AgentMonitor.tsx`（已存在） | `TokenDashboard/`（本设计新增） |
 | --- | --- | --- |
-| 关注点 | 决策语义、Trace 树、节点耗时 | 成本数字、配额状态、模型分布 |
+| 关注点 | 决策语义、Trace 树、节点耗时 | 成本数字、模型分布、调用类型分布 |
 | 数据源 | `traces` + `spans`（实时） | `token_daily_stats`（聚合） |
 | 入口 | 开发人员工作台 Tab 1 | 开发人员工作台 Tab 4（详见 [13_开发人员工作台设计.md](./13_开发人员工作台设计.md)） |
 
 两者独立页，通过工作台顶部 Tab 切换。共享的数据只有 `traces.total_tokens`（P0 修复后），但读取链路不同——AgentMonitor 直接读 trace 实例，TokenDashboard 读聚合表。
 
-## 6. 配额与降级
+## 6. 成本防护边界
 
-### 6.1 配额检查时机
+当前版本不在业务流程中做配额拦截。成本失控防护采用以下方式：
 
-复用 farm-manager 的设计：在**每次 LLM 调用前**调用 `check_user_quota(user_id, db)`。位置建议放在 5 个 Agent 共享的 LLM 客户端封装（`core/cached_client.py` 或 `core/model_router.py`）的入口拦截。
-
-### 6.2 per-user 配额覆写
-
-优先级：`users.token_monthly_limit` > `config.token_quota.monthly_limit`。逻辑见 `quota_service.get_user_quota_limits`，复用即可。
-
-### 6.3 超限降级策略
-
-`config.yaml` 的 `token_quota.over_quota_action` 控制行为，主系统支持三种：
-
-| 取值 | 行为 |
+| 防护点 | 说明 |
 | --- | --- |
-| `reject`（默认） | 直接返回 429，工作流中止，写入 `human_reviews.trigger_type='error_fallback'` |
-| `degrade_rule` | 跳过 LLM，走规则兜底（ClassifierAgent 退化为关键词匹配，ReActProcessorAgent 退化为模板） |
-| `degrade_rag` | 关闭 RAG 检索（Qdrant 调用），仅用 LLM 自有知识，token 消耗减半 |
+| 部署期模型选择 | 通过配置选择成本较低的默认模型 |
+| Token 控制台 | 开发人员查看日/周/月趋势，发现异常调用 |
+| Trace 联动 | 从高耗调用跳转到具体工单 trace 复盘 |
+| 人工运维 | 超出预算时由开发人员调整模型、Prompt 或 RAG 策略 |
 
-毕设默认采用 `degrade_rule`，保证 demo 不中断且能演示降级链路（论文可单独成节）。
+历史方案中的 per-user 配额、quota_service 和超限自动降级不进入当前实现。
 
 ## 7. call_type 枚举设计
 
@@ -298,23 +255,15 @@ sequenceDiagram
     participant WF as 工作流编排
     participant Agent as 5 个 Agent
     participant Trace as core/trace.py
-    participant Quota as quota_service
     participant DB as MySQL
 
     U->>API: 提交工单
     API->>WF: 启动 workflow
     loop 每个 Agent 调用 LLM
-        Agent->>Quota: check_user_quota(user_id)
-        alt 配额未超
-            Quota-->>Agent: allowed=True
-            Agent->>Agent: 调用 LLM
-            Agent->>Trace: _finalize_span(call_type, model, usage)
-            Trace->>DB: UPDATE traces SET total_tokens += delta
-            Trace->>DB: UPSERT token_daily_stats
-        else 配额超限
-            Quota-->>Agent: allowed=False (period=month/week)
-            Agent->>WF: 走降级路径 (degrade_rule / reject)
-        end
+        Agent->>Agent: 调用 LLM
+        Agent->>Trace: _finalize_span(call_type, model, usage)
+        Trace->>DB: UPDATE traces SET total_tokens += delta
+        Trace->>DB: UPSERT token_daily_stats
     end
     WF-->>API: 处理完成
     API-->>U: 返回结果
@@ -323,17 +272,16 @@ sequenceDiagram
     U->>API: GET /api/admin/stats/tokens
     API->>DB: 聚合查询 token_daily_stats
     DB-->>API: by_model / by_call_type
-    API-->>U: 渲染趋势/热力图/配额面板
+    API-->>U: 渲染趋势/热力图/模型用量
 ```
 
 ## 9. 毕设取舍
 
 ### 做
 
-- 日/周/月统计 + 配额管理 + 超限降级 + 按 `call_type` 分组
+- 日/周/月统计 + 按 `call_type` / `model` 分组
 - 论文所需成本数据（折算人民币、模型分布、热力图）
 - 修复 v1.1 P0 bug（`traces.total_tokens` 永远为 0）
-- per-user 配额覆写（演示差异化策略）
 
 ### 不做
 
@@ -341,7 +289,8 @@ sequenceDiagram
 | --- | --- |
 | 实时流式 token 计数 | LangGraph span 异步收尾已足够，流式属于生产特性 |
 | 跨项目聚合（farm-manager + 主系统） | 双项目独立部署，库不同，毕设无需跨库 |
-| 付费套餐 / 计费 | 主系统无支付，配额即可 |
+| per-user 配额 / 用户计费 | 服务性工单系统不按用户分摊成本 |
+| 付费套餐 / 计费 | 主系统无支付，不做账单 |
 | 多模型单位成本对比页面 | 仅在 `estimated_cost_cny` 字段沉淀单价，前端不展示对比 |
 | 实时告警 / webhook | 由前端刷新按钮覆盖，不做推送 |
 
@@ -351,5 +300,5 @@ sequenceDiagram
 - [06_可观测与执行追踪设计.md](./06_可观测与执行追踪设计.md) — trace/span 数据契约
 - [10_Agent监控与决策追踪设计.md](./10_Agent监控与决策追踪设计.md) — 已整合至 [13_开发人员工作台设计.md](./13_开发人员工作台设计.md)
 - [13_开发人员工作台设计.md](./13_开发人员工作台设计.md) — Token 控制台作为 Tab 4 嵌入
-- [09_人工审核工作台设计.md](./09_人工审核工作台设计.md) — 鉴权 `require_admin` 来源、配额超限 `error_fallback` 触发审核
+- [09_人工审核工作台设计.md](./09_人工审核工作台设计.md) — 鉴权 `require_admin` 来源与人工审核工作台
 - [11_RAG服务独立项目设计.md](./11_RAG服务独立项目设计.md) — `call_type=rag` 的上游来源

@@ -1,6 +1,6 @@
 # WebSocket 实时推送协议
 
-> **v2.0 修订（2026-07-01）**：v2.0 新增开发人员工作台的事件推送（trace 写入、token 累加、配额告警等），详见下文「v2.0 新增事件」。
+> **v2.1 修订（2026-07-09）**：Token 相关事件改为系统级用量统计，不再推送 per-user 配额告警。
 
 ## 1. 设计目标
 
@@ -209,13 +209,13 @@ v2.0 起新增开发人员工作台相关事件，主系统通过全局监控通
 | 事件 | 触发时机 | 推送对象 |
 | --- | --- | --- |
 | `trace_updated` | 工单的 trace 有新 span 写入 | 订阅该 ticket 的开发人员 |
-| `token_quota_warning` | 用户 token 用量达 80% | 该用户 + 管理员 |
-| `token_quota_exceeded` | 用户 token 用量达 100% | 该用户 + 管理员（触发降级） |
+| `token_stats_updated` | Token 聚合统计写入或刷新 | 开发人员 |
+| `token_cost_warning` | 系统级用量或成本超过部署期告警阈值 | 开发人员 |
 | `rag_service_unhealthy` | rag-service /health 异常 | 开发人员 |
 | `prompt_version_activated` | Prompt 新版本被激活 | 开发人员 |
 | `agent_call_failed` | 任一 Agent 调用 LLM 失败 | 开发人员 |
 
 ## 相关文档
 
-- [12_Token控制台.md](../01_正式设计/12_Token控制台.md) — Token 配额与降级策略
-- [13_开发人员工作台.md](../01_正式设计/13_开发人员工作台.md) — 开发人员工作台事件订阅与展示
+- [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) — 系统级 Token 成本统计
+- [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md) — 开发人员工作台事件订阅与展示
