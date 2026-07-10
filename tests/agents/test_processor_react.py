@@ -226,10 +226,16 @@ async def test_react_processor_fallback_with_related_knowledge_is_not_unknown(mo
 
     result = await agent.process("咨询高德地图SDK配置及白名单规则", "inquiry", "P3")
 
-    assert "知识库命中了相关资料" in result["result"]
-    assert "地图服务" in result["result"]
+    assert "可以先按以下方向核对" in result["result"]
+    assert "高德" in result["result"]
     assert "白名单" in result["result"]
-    assert "人工确认" in result["result"]
+    assert "如仍无法确认" in result["result"]
+    assert "知识库命中" not in result["result"]
+    assert "知识库参考" not in result["result"]
+    assert "相似度" not in result["result"]
+    assert "置信度" not in result["result"]
+    assert "人工确认" not in result["result"]
+    assert "地图服务" not in result["result"]
     assert "知识库暂时没有收录该问题的明确答案" not in result["result"]
 
 

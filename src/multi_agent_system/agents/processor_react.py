@@ -607,17 +607,15 @@ class ReActProcessorAgent:
 
     def _build_related_knowledge_guidance(self, reference: str) -> str:
         """基于相关知识命中生成可展示答复，避免把部分命中误判为完全未知。"""
-        reference_text = self._compact_reference(reference)
+        reference_text = self._build_user_visible_reference_summary(reference)
         return (
-            "您好，知识库命中了相关资料，但还没有覆盖到完全精确的业务细则。"
-            "可先参考以下处理建议：\n\n"
-            f"知识库参考：{reference_text}\n\n"
-            "建议先核对：\n"
+            "您好，已根据现有资料整理出一组可先核对的方向。"
+            "目前还缺少可直接确认最终答案的具体业务细则，可以先按以下方向核对：\n\n"
+            f"{reference_text}\n\n"
             "1. 确认产品或平台、应用类型、账号权限与本次咨询对象是否一致。\n"
             "2. 对接或配置类问题，优先核对 Key/Secret、应用标识、白名单、服务开通状态和接口返回码。\n"
             "3. 流程或规则类问题，优先核对适用账号范围、入口路径、审批要求和最新业务规则。\n\n"
-            "需要人工确认：具体后台入口、平台专属字段名称、账号权限和公司内部处理规则；"
-            "确认后可补充进知识库，后续由 Agent 直接回答。"
+            "如仍无法确认，请补充具体平台入口、账号权限、截图或内部规则说明，我们会继续核对。"
         )
 
     def _compact_reference(self, reference: str, max_length: int = 800) -> str:
@@ -626,6 +624,20 @@ class ReActProcessorAgent:
         if len(compacted) <= max_length:
             return compacted
         return f"{compacted[:max_length].rstrip()}..."
+
+    def _build_user_visible_reference_summary(self, reference: str, max_length: int = 420) -> str:
+        """把检索上下文改写成用户可读摘要，不暴露相似度、标题、分类等内部字段。"""
+        text = self._compact_reference(reference, max_length=1600)
+        text = re.sub(r"检索到以下知识片段[:：]?", "", text)
+        text = re.sub(r"\b\d+\.\s*标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*", "\n", text)
+        text = re.sub(r"标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*", "", text)
+        text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+        text = re.sub(r"\s+", " ", text).strip(" ；。")
+        if not text:
+            text = "可参考现有资料中的流程、配置项和规则说明。"
+        if len(text) > max_length:
+            text = f"{text[:max_length].rstrip()}..."
+        return f"可参考的资料要点：{text}"
 
     def _is_valid_reference(self, reference: object) -> bool:
         """判断引用是否是真实知识命中，而不是空结果提示。"""

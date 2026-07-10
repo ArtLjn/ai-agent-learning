@@ -74,7 +74,6 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_backoff_base: float = 2.0
     review_threshold: float = 0.7
-    workflow_node_delay_seconds: float = 0.8
     checkpoint_ttl: int = 86400  # 24 hours in seconds
 
     # 人工审核工作台

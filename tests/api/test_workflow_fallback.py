@@ -57,7 +57,7 @@ def fallback_app():
     app.state.db_manager = MagicMock()
     app.state.db_manager.create_pending_review = AsyncMock(return_value=None)
     app.state.coordinator = None  # 跳过 AI 建议
-    app.state.settings = MagicMock(workflow_node_delay_seconds=0.0)
+    app.state.settings = MagicMock()
     # _run_workflow 主流程中 trace_manager 检查路径需要 falsy 跳过
     app.state.trace_manager = None
     # get_pending_review_by_ticket 在 review_requested 广播中被 await，返回 None 即可
@@ -145,8 +145,8 @@ class TestRunWorkflowIntegration:
     """_run_workflow 异常分支端到端验证。"""
 
     @pytest.mark.asyncio
-    async def test_run_workflow_waits_between_nodes_for_demo(self, fallback_app):
-        """配置演示延迟后，节点广播完成后应暂停，方便前端展示执行过程。"""
+    async def test_run_workflow_does_not_wait_between_nodes(self, fallback_app):
+        """节点广播后不应人为等待，页面进度只跟随真实工作流状态。"""
         fallback_app.state.settings.workflow_node_delay_seconds = 1.2
 
         with patch(
@@ -164,7 +164,7 @@ class TestRunWorkflowIntegration:
                 },
             )
 
-        sleep_mock.assert_awaited_once_with(1.2)
+        sleep_mock.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_run_workflow_exception_triggers_safe_fallback(self, fallback_app):

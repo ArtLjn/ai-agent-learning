@@ -108,7 +108,12 @@ def _promote(client: TestClient, app: FastAPI, user_id: str, role: str) -> None:
     _login(client, updated["username"])
 
 
-def _seed_ticket(app: FastAPI, ticket_id: str, user_id: str) -> dict[str, Any]:
+def _seed_ticket(
+    app: FastAPI,
+    ticket_id: str,
+    user_id: str,
+    **overrides: Any,
+) -> dict[str, Any]:
     """直接通过 db_manager 植入一条工单。"""
     ticket = {
         "ticket_id": ticket_id,
@@ -122,6 +127,7 @@ def _seed_ticket(app: FastAPI, ticket_id: str, user_id: str) -> dict[str, Any]:
         "references": [],
         "created_at": "2026-07-05T10:00:00",
     }
+    ticket.update(overrides)
     client_portal = app.state._portal
     client_portal.call(app.state.db_manager.save_ticket, ticket)
     return ticket
@@ -274,6 +280,69 @@ class TestTicketDetailIsolation:
 
         resp = client.get("/api/tickets/TK-bob-1")
         assert resp.status_code == 200
+
+    def test_user_detail_sanitizes_internal_processing_result(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """user 视角不返回知识库命中、相似度等内部检索文本。"""
+        alice = _register(client, "alice")
+        raw_result = (
+            "您好，知识库命中了相关资料，但还没有覆盖到完全精确的业务细则。"
+            "可先参考以下处理建议：\n\n"
+            "知识库参考：检索到以下知识片段：1. 标题: 未命名文档；分类: 未分类；"
+            "相似度: 0.40 内容: 浏览器提示证书过期。证书未续期。中间证书缺失。"
+            "定时任务未执行。查看 acme.sh 日志。\n\n"
+            "建议先核对：\n"
+            "1. 确认证书有效期。\n"
+            "2. 检查定时任务是否执行。\n\n"
+            "需要人工确认：具体后台入口。"
+        )
+        _seed_ticket(
+            app,
+            "TK-alice-internal-result",
+            alice["user_id"],
+            content=(
+                "【问题标题】SSL证书过期咨询\n"
+                "【问题类型】技术问题\n"
+                "【Agent判断】用户询问证书续签，置信度 0.95\n"
+                "【原始描述】你好，我想咨询一下SSL证书过期的处理流程。"
+            ),
+            processing_result=raw_result,
+        )
+
+        resp = client.get("/api/tickets/TK-alice-internal-result")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["content"] == "你好，我想咨询一下SSL证书过期的处理流程。"
+        assert "问题类型" not in body["content"]
+        assert "置信度" not in body["content"]
+        result = body["processing_result"]
+        assert "证书过期" in result
+        assert "acme.sh" in result
+        assert "知识库命中" not in result
+        assert "知识库参考" not in result
+        assert "检索到以下知识片段" not in result
+        assert "相似度" not in result
+        assert "分类:" not in result
+        assert "需要人工确认" not in result
+
+    def test_admin_detail_keeps_internal_processing_result(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """admin 视角保留原始处理结果用于排查。"""
+        alice = _register(client, "alice")
+        raw_result = "知识库参考：检索到以下知识片段：相似度: 0.40 内容: 证书未续期。"
+        _seed_ticket(
+            app,
+            "TK-alice-admin-raw",
+            alice["user_id"],
+            processing_result=raw_result,
+        )
+        _promote(client, app, alice["user_id"], "admin")
+
+        resp = client.get("/api/tickets/TK-alice-admin-raw")
+        assert resp.status_code == 200
+        assert resp.json()["processing_result"] == raw_result
 
 
 class TestMessagesAndFeedbackIsolation:

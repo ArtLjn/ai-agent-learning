@@ -5,6 +5,7 @@
 否则使用占位实现（向后兼容）。
 """
 
+import re
 from typing import TYPE_CHECKING, Any, Literal
 
 from langgraph.graph import END, START, StateGraph
@@ -934,17 +935,16 @@ def _build_final_knowledge_gap_result(state: TicketState) -> str:
 
     if reference_text:
         lines = [
-            "您好，知识库命中了相关资料，但还没有覆盖到完全精确的业务细则。",
+            "您好，已根据现有资料整理出一组可先核对的方向。",
             "",
-            f"知识库参考：{reference_text}",
+            f"可参考的资料要点：{reference_text}",
             "",
-            "可先按以下方向处理：",
+            "可以先按以下方向核对：",
             "1. 先确认本次咨询的产品/平台、账号权限、应用类型和业务场景是否与知识库片段一致。",
             "2. 对接或配置类问题，重点核对 Key/Secret、应用标识、白名单、服务开通状态和接口返回码。",
             "3. 流程或规则类问题，重点核对适用账号范围、入口路径、审批要求和最新业务规则。",
             "",
-            "需要人工确认：具体后台入口、平台专属字段名称、账号权限和公司内部处理规则。",
-            "确认后建议补充进知识库，后续 Agent 可直接给出精确步骤。",
+            "如仍无法确认，请补充具体平台入口、账号权限、截图或内部规则说明，我们会继续核对。",
         ]
         if content:
             lines.extend(["", f"本次咨询：{content[:160]}"])
@@ -1226,7 +1226,7 @@ def _join_text_list(value: object) -> str:
 
 
 def _summarize_references(references: object, max_length: int = 180) -> str:
-    """压缩引用文本，避免把长知识库片段塞进最终答复。"""
+    """压缩引用文本，并移除相似度、分类等内部检索字段。"""
     if not isinstance(references, list) or not references:
         return ""
     valid_items = [
@@ -1237,8 +1237,25 @@ def _summarize_references(references: object, max_length: int = 180) -> str:
     text = " ".join(valid_items)
     if not text:
         return ""
-    text = " ".join(text.split())
+    text = _strip_reference_metadata(" ".join(text.split()))
     return text if len(text) <= max_length else f"{text[:max_length].rstrip()}..."
+
+
+def _strip_reference_metadata(text: str) -> str:
+    """把检索上下文改成用户可读内容，内部检索字段只留在 Trace/开发视图。"""
+    text = re.sub(r"检索到以下知识片段[:：]?", "", text)
+    text = re.sub(
+        r"\b\d+\.\s*标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*",
+        "\n",
+        text,
+    )
+    text = re.sub(
+        r"标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*",
+        "",
+        text,
+    )
+    text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+    return re.sub(r"\s+", " ", text).strip(" ；。")
 
 
 # ============================================================

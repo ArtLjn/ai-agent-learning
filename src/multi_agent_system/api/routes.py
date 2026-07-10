@@ -3,6 +3,7 @@
 import asyncio
 import json
 import random
+import re
 from datetime import datetime
 from functools import partial
 from typing import Any
@@ -71,6 +72,95 @@ def _parse_references(ticket: dict[str, Any]) -> list[str]:
     if not isinstance(parsed, list):
         return []
     return [str(item) for item in parsed]
+
+
+def _strip_reference_metadata(text: str) -> str:
+    """移除用户不可见的检索元信息，保留可读的知识内容。"""
+    text = re.sub(r"检索到以下知识片段[:：]?", "", text)
+    text = re.sub(
+        r"\b\d+\.\s*标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*",
+        "\n",
+        text,
+    )
+    text = re.sub(
+        r"标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*",
+        "",
+        text,
+    )
+    text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+    return re.sub(r"\s+", " ", text).strip(" ；。")
+
+
+def _sanitize_processing_result_for_user(result: str | None) -> str | None:
+    """用户视角清洗历史处理结果，避免暴露知识库命中、相似度等内部字段。"""
+    if not result:
+        return result
+
+    internal_markers = (
+        "知识库命中",
+        "知识库参考",
+        "检索到以下知识片段",
+        "相似度",
+        "置信度",
+        "需要人工确认",
+    )
+    if not any(marker in result for marker in internal_markers):
+        return result
+
+    body = result
+    if "知识库参考" in body:
+        body = body.split("知识库参考", 1)[1]
+    if "建议先核对" in body:
+        body = body.split("建议先核对", 1)[0]
+    if "需要人工确认" in body:
+        body = body.split("需要人工确认", 1)[0]
+
+    summary = _strip_reference_metadata(body)
+    if len(summary) > 520:
+        summary = f"{summary[:520].rstrip()}..."
+    if not summary:
+        summary = "可以先核对证书状态、相关配置和服务运行情况。"
+
+    return (
+        "您好，已根据现有资料整理出一组可先核对的方向。\n\n"
+        f"可参考的资料要点：{summary}\n\n"
+        "可以先按以下方向核对：\n"
+        "1. 确认当前问题对象、域名或服务实例与本次咨询一致。\n"
+        "2. 检查相关配置、定时任务或服务状态是否按预期运行。\n"
+        "3. 查看最近一次执行记录、错误日志和变更记录，确认是否存在失败或未生效。\n\n"
+        "如仍无法确认，请补充具体域名、服务入口、执行时间或报错截图，我们会继续核对。"
+    )
+
+
+def _extract_user_ticket_content(content: str) -> str:
+    """user 视角只返回原始提交内容，不暴露意图识别后的结构化标签。"""
+    marker = "【原始描述】"
+    if marker not in content:
+        return content.strip()
+    return content.rsplit(marker, 1)[-1].strip()
+
+
+def _build_ticket_response(ticket: dict[str, Any], *, role: str) -> TicketResponse:
+    """按角色构造工单响应；user 视角过滤内部处理细节。"""
+    processing_result = ticket.get("processing_result")
+    content = ticket.get("content", "")
+    if role == "user":
+        content = _extract_user_ticket_content(content)
+        processing_result = _sanitize_processing_result_for_user(processing_result)
+
+    return TicketResponse(
+        ticket_id=ticket.get("ticket_id", ""),
+        content=content,
+        category=ticket.get("category"),
+        priority=ticket.get("priority"),
+        processing_result=processing_result,
+        references=_parse_references(ticket),
+        review_score=ticket.get("review_score"),
+        retry_count=ticket.get("retry_count", 0),
+        status=ticket.get("status", "received"),
+        error=ticket.get("error"),
+        created_at=ticket.get("created_at", datetime.now()),
+    )
 
 
 def _parse_trace_references(trace: dict[str, Any]) -> list[str]:
@@ -416,21 +506,12 @@ async def get_ticket(ticket_id: str, request: Request) -> TicketResponse:
         raise HTTPException(status_code=404, detail=f"工单 {ticket_id} 不存在")
 
     # 用户隔离：user 角色只能看自己的工单
-    from src.multi_agent_system.core.auth import assert_ticket_access
+    from src.multi_agent_system.core.auth import assert_ticket_access, get_session_role
     assert_ticket_access(ticket, request)
 
-    return TicketResponse(
-        ticket_id=ticket.get("ticket_id", ticket_id),
-        content=ticket.get("content", ""),
-        category=ticket.get("category"),
-        priority=ticket.get("priority"),
-        processing_result=ticket.get("processing_result"),
-        references=_parse_references(ticket),
-        review_score=ticket.get("review_score"),
-        retry_count=ticket.get("retry_count", 0),
-        status=ticket.get("status", "received"),
-        error=ticket.get("error"),
-        created_at=ticket.get("created_at", datetime.now()),
+    return _build_ticket_response(
+        {**ticket, "ticket_id": ticket.get("ticket_id", ticket_id)},
+        role=get_session_role(request),
     )
 
 
@@ -536,22 +617,7 @@ async def list_tickets(
         offset=offset,
     )
 
-    return [
-        TicketResponse(
-            ticket_id=t.get("ticket_id", ""),
-            content=t.get("content", ""),
-            category=t.get("category"),
-            priority=t.get("priority"),
-            processing_result=t.get("processing_result"),
-            references=_parse_references(t),
-            review_score=t.get("review_score"),
-            retry_count=t.get("retry_count", 0),
-            status=t.get("status", "received"),
-            error=t.get("error"),
-            created_at=t.get("created_at", datetime.now()),
-        )
-        for t in tickets
-    ]
+    return [_build_ticket_response(t, role=role) for t in tickets]
 
 
 # ============================================================
@@ -1479,14 +1545,6 @@ async def _run_workflow(app: Any, ticket_id: str, state: dict) -> None:
                     node=node_name,
                     data=span_data,
                 )
-                node_delay = getattr(
-                    getattr(app.state, "settings", None),
-                    "workflow_node_delay_seconds",
-                    0,
-                )
-                if node_delay > 0:
-                    await asyncio.sleep(node_delay)
-
                 # 人工审核请求事件：节点标记 __review_requested__ 时广播
                 if node_output.get("__review_requested__"):
                     review_payload: dict[str, Any] = {

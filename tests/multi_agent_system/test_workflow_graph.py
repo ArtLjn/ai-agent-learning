@@ -400,10 +400,16 @@ class TestTicketWorkflow:
         assert result["status"] == "completed"
         assert result["review_issue_type"] == "knowledge_gap"
         assert result["processing_result"] is not None
-        assert "知识库命中了相关资料" in result["processing_result"]
-        assert "地图服务" in result["processing_result"]
+        assert "可以先按以下方向核对" in result["processing_result"]
+        assert "高德" in result["processing_result"]
         assert "白名单" in result["processing_result"]
-        assert "人工确认" in result["processing_result"]
+        assert "如仍无法确认" in result["processing_result"]
+        assert "知识库命中" not in result["processing_result"]
+        assert "知识库参考" not in result["processing_result"]
+        assert "相似度" not in result["processing_result"]
+        assert "置信度" not in result["processing_result"]
+        assert "人工确认" not in result["processing_result"]
+        assert "地图服务" not in result["processing_result"]
         assert not result["processing_result"].startswith("您好，知识库暂时没有收录该问题的明确答案")
 
     @pytest.mark.asyncio
