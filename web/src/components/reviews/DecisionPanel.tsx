@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import type { ReviewDecision, ReviewDetail } from '@/types'
 import { decisionMeta } from './reviewUtils'
 import { cn } from '@/lib/utils'
+import { getTicketSupplementPrompt } from '@/lib/ticketSupplementPrompt'
 
 interface Props {
   detail: ReviewDetail
@@ -67,6 +68,7 @@ export function DecisionPanel({ detail, reviewerId, onReviewerIdChange, onSubmit
   const rewriteMissing = pendingDecision === 'rewrite' && !rewritten.trim()
   const reviewerMissing = !reviewerId.trim()
   const canSubmit = !!pendingDecision && !reasonMissing && !rewriteMissing && !reviewerMissing && !submitting
+  const supplementPrompt = getTicketSupplementPrompt(detail)
 
   return (
     <Card className="bg-card border-border">
@@ -136,11 +138,16 @@ export function DecisionPanel({ detail, reviewerId, onReviewerIdChange, onSubmit
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
                 placeholder={pendingDecision === 'request_info'
-                  ? '请输入希望用户补充的信息，例如订单号、支付流水号...'
+                  ? supplementPrompt.placeholder
                   : '请说明本次决策的依据...'}
-                rows={3}
+                rows={pendingDecision === 'request_info' ? 5 : 3}
                 className="text-sm"
               />
+              {pendingDecision === 'request_info' && (
+                <p className="mt-1.5 text-[11px] leading-relaxed text-muted-foreground">
+                  {supplementPrompt.helperText}
+                </p>
+              )}
             </div>
 
             {confirmOpen && (

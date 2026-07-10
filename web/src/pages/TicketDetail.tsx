@@ -20,6 +20,10 @@ import { DecisionTimeline } from '@/components/trace/DecisionTimeline'
 import { LiveExecutionFlow } from '@/components/trace/LiveExecutionFlow'
 import { Markdown } from '@/components/ui/markdown'
 import { formatDuration } from '@/components/trace/spanTypes'
+import { canUseTicketReplyComposer } from '@/lib/ticketDetailPermissions'
+import { getTicketSupplementPrompt } from '@/lib/ticketSupplementPrompt'
+import { extractUserTicketContent, getTicketProgress, type TicketProgress } from '@/lib/ticketPresentation'
+import { cn } from '@/lib/utils'
 import {
   ArrowLeft, MessageSquare, Brain, Clock, Layers, Bot, Wrench,
   BookOpen, ExternalLink, Activity, Zap, GitFork, Send, ShieldCheck, RotateCcw,
@@ -35,6 +39,7 @@ export function TicketDetail() {
   const ticketStatus = ticket?.status
   const isRunning = !!ticketStatus && !['completed', 'failed'].includes(ticketStatus)
   const role = auth?.role
+  const isUser = role === 'user'
   const isDeveloper = role === 'developer'
   const { data: trace } = useTicketTrace(id!, isRunning, isDeveloper)
   const traceDetail = trace as TraceDetail | undefined
@@ -127,6 +132,10 @@ export function TicketDetail() {
     && Boolean(ticket.processing_result)
     && (ticket.review_score == null || ticket.review_score >= 0.7)
   const waitingForUserInput = ticket.status === 'waiting_user_input'
+  const showReplyComposer = canUseTicketReplyComposer(role, waitingForUserInput)
+  const supplementPrompt = getTicketSupplementPrompt(ticket)
+  const userTicketContent = extractUserTicketContent(ticket.content)
+  const progress = getTicketProgress(ticket.status)
   const canShowProcessingResult = Boolean(ticket.processing_result)
     && (reviewPassed || waitingForUserInput)
   const reviewFailed = ticket.review_score != null && ticket.review_score < 0.7
@@ -169,16 +178,21 @@ export function TicketDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <InfoField label="状态"><StatusBadge status={ticket.status} /></InfoField>
-                <InfoField label="分类">{ticket.category ? <CategoryBadge category={ticket.category} /> : '-'}</InfoField>
-                <InfoField label="优先级">{ticket.priority ? <PriorityBadge priority={ticket.priority} /> : '-'}</InfoField>
-                <InfoField label="重试次数">
-                  <span className="text-sm font-mono">{ticket.retry_count} / 3</span>
-                </InfoField>
+                {!isUser && (
+                  <>
+                    <InfoField label="分类">{ticket.category ? <CategoryBadge category={ticket.category} /> : '-'}</InfoField>
+                    <InfoField label="优先级">{ticket.priority ? <PriorityBadge priority={ticket.priority} /> : '-'}</InfoField>
+                    <InfoField label="重试次数">
+                      <span className="text-sm font-mono">{ticket.retry_count} / 3</span>
+                    </InfoField>
+                  </>
+                )}
               </div>
+              {isUser && <TicketProgressCard progress={progress} />}
               <Separator className="bg-border" />
               <InfoField label="工单内容">
                 <div className="mt-1">
-                  <Markdown>{ticket.content}</Markdown>
+                  <Markdown>{isUser ? userTicketContent : ticket.content}</Markdown>
                 </div>
               </InfoField>
               <Separator className="bg-border" />
@@ -195,7 +209,7 @@ export function TicketDetail() {
                     )}
                 </div>
               </InfoField>
-              {ticket.review_score != null && (
+              {!isUser && ticket.review_score != null && (
                 <>
                   <Separator className="bg-border" />
                   <div className="grid grid-cols-2 gap-4">
@@ -212,7 +226,7 @@ export function TicketDetail() {
                   </div>
                 </>
               )}
-              {ticket.references?.length > 0 && (
+              {!isUser && ticket.references?.length > 0 && (
                 <>
                   <Separator className="bg-border" />
                   <InfoField label="知识库参考">
@@ -246,7 +260,9 @@ export function TicketDetail() {
           <ProcessLogCard
             agentMessages={messages}
             messages={ticketMessages}
-            waitingForUser={waitingForUserInput}
+            showAgentMessages={!isUser}
+            showReplyComposer={showReplyComposer}
+            supplementPrompt={supplementPrompt}
             reply={reply}
             onReplyChange={setReply}
             onSubmit={() => {
@@ -285,6 +301,60 @@ export function TicketDetail() {
           onOpenChange={setSheetOpen}
         />
       )}
+    </div>
+  )
+}
+
+function TicketProgressCard({ progress }: { progress: TicketProgress }) {
+  const toneClass = {
+    active: 'bg-primary',
+    success: 'bg-success',
+    warning: 'bg-warning',
+    error: 'bg-destructive',
+  }[progress.tone]
+
+  return (
+    <div className="rounded-md border border-border bg-background p-3">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">{progress.label}</p>
+          <p className="mt-0.5 text-xs text-muted-foreground">{progress.detail}</p>
+        </div>
+        <span className="font-mono text-xs text-muted-foreground">{progress.percent}%</span>
+      </div>
+      <div
+        role="progressbar"
+        aria-label="工单处理进度"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={progress.percent}
+        className="h-2 overflow-hidden rounded-full bg-muted"
+      >
+        <div
+          className={cn('h-full rounded-full transition-all', toneClass)}
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+      <div className="mt-3 grid grid-cols-5 gap-2">
+        {progress.steps.map((step, index) => (
+          <div key={step.key} className="min-w-0">
+            <div
+              className={cn(
+                'mx-auto mb-1 h-2 w-2 rounded-full',
+                index <= progress.currentStep ? toneClass : 'bg-muted',
+              )}
+            />
+            <p
+              className={cn(
+                'truncate text-center text-[10px]',
+                index <= progress.currentStep ? 'text-foreground' : 'text-muted-foreground',
+              )}
+            >
+              {step.label}
+            </p>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
@@ -477,7 +547,9 @@ function ReviewGatePlaceholder({
 function ProcessLogCard({
   agentMessages,
   messages,
-  waitingForUser,
+  showAgentMessages,
+  showReplyComposer,
+  supplementPrompt,
   reply,
   onReplyChange,
   onSubmit,
@@ -486,7 +558,13 @@ function ProcessLogCard({
 }: {
   agentMessages: { role: string; content: string }[]
   messages: TicketMessage[]
-  waitingForUser: boolean
+  showAgentMessages: boolean
+  showReplyComposer: boolean
+  supplementPrompt: {
+    title: string
+    placeholder: string
+    helperText: string
+  }
   reply: string
   onReplyChange: (value: string) => void
   onSubmit: () => void
@@ -500,7 +578,7 @@ function ProcessLogCard({
           <MessageSquare className="w-4 h-4 text-primary" />
           工单过程记录
           <span className="ml-auto text-[11px] font-normal text-muted-foreground">
-            沟通 {messages.length} 条 · Agent {agentMessages.length} 条
+            沟通 {messages.length} 条{showAgentMessages ? ` · Agent ${agentMessages.length} 条` : ''}
           </span>
         </CardTitle>
       </CardHeader>
@@ -532,14 +610,17 @@ function ProcessLogCard({
           </div>
         </div>
 
-        {waitingForUser && (
+        {showReplyComposer && (
           <div className="space-y-2 rounded-md border border-warning/30 bg-warning/5 p-3">
-            <p className="text-xs font-medium text-warning">待用户补充信息</p>
+            <p className="text-xs font-medium text-warning">{supplementPrompt.title}</p>
+            <p className="text-xs leading-relaxed text-muted-foreground">
+              {supplementPrompt.helperText}
+            </p>
             <Textarea
               value={reply}
               onChange={(event) => onReplyChange(event.target.value)}
-              placeholder="请输入订单号、支付流水号或其他补充说明..."
-              rows={3}
+              placeholder={supplementPrompt.placeholder}
+              rows={5}
               className="text-sm"
             />
             <div className="flex items-center gap-2">
@@ -556,32 +637,36 @@ function ProcessLogCard({
           </div>
         )}
 
-        <Separator className="bg-border" />
+        {showAgentMessages && (
+          <>
+            <Separator className="bg-border" />
 
-        <div>
-          <p className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">Agent 消息链</p>
-          <div className="max-h-[360px] overflow-y-auto pr-1">
-            {agentMessages.length === 0 ? (
-              <p className="rounded-md border border-dashed border-border py-6 text-center text-sm text-muted-foreground">
-                等待处理中...
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {agentMessages.map((msg, index) => (
-                  <div key={`${msg.role}-${index}`} className="rounded-md bg-background border border-border p-2.5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-[10px] font-mono uppercase tracking-wide text-primary bg-primary/10 rounded px-1.5 py-0.5">
-                        {msg.role}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground/60">#{index + 1}</span>
-                    </div>
-                    <Markdown>{msg.content}</Markdown>
+            <div>
+              <p className="mb-2 text-[10px] uppercase tracking-wide text-muted-foreground">Agent 消息链</p>
+              <div className="max-h-[360px] overflow-y-auto pr-1">
+                {agentMessages.length === 0 ? (
+                  <p className="rounded-md border border-dashed border-border py-6 text-center text-sm text-muted-foreground">
+                    等待处理中...
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {agentMessages.map((msg, index) => (
+                      <div key={`${msg.role}-${index}`} className="rounded-md bg-background border border-border p-2.5">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[10px] font-mono uppercase tracking-wide text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                            {msg.role}
+                          </span>
+                          <span className="text-[10px] text-muted-foreground/60">#{index + 1}</span>
+                        </div>
+                        <Markdown>{msg.content}</Markdown>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   )
