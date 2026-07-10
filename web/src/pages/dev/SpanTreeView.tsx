@@ -9,6 +9,12 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -16,11 +22,47 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import {
+  Background,
+  BackgroundVariant,
+  Controls,
+  Handle,
+  MarkerType,
+  MiniMap,
+  Position,
+  ReactFlow,
+  useEdgesState,
+  useNodesState,
+  type Edge,
+  type Node,
+  type NodeChange,
+  type NodeProps,
+  type NodeTypes,
+} from '@xyflow/react'
+import '@xyflow/react/dist/style.css'
+import { cn } from '@/lib/utils'
+import {
+  Bell,
   ChevronDown,
   ChevronRight,
+  CheckCircle2,
+  CircleDot,
+  FileWarning,
+  GitBranch,
+  HelpCircle,
+  Inbox,
   Loader2,
+  Maximize2,
+  MessageSquareText,
+  RotateCcw,
+  Route as RouteIcon,
   Search as SearchIcon,
+  ShieldCheck,
+  Tags,
+  TriangleAlert,
+  UserRoundCheck,
+  Zap,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import type { AdminSpanDecision, AdminTraceDetail, Span } from '@/types'
 
@@ -55,6 +97,189 @@ function formatDuration(duration: number | null | undefined): string {
   if (duration < 1) return `${Math.round(duration * 1000)}ms`
   return `${duration.toFixed(2)}s`
 }
+
+const WORKFLOW_NODE_WIDTH = 176
+const WORKFLOW_NODE_HEIGHT = 104
+
+type WorkflowNodeConfig = {
+  id: string
+  label: string
+  role: string
+  note: string
+  x: number
+  y: number
+  icon: LucideIcon
+  targetPosition?: Position
+  sourcePosition?: Position
+}
+
+type WorkflowEdgeConfig = {
+  from: string
+  to: string
+  label?: string
+  dashed?: boolean
+}
+
+type WorkflowNodeData = {
+  config: WorkflowNodeConfig
+  span?: Span
+  hasDecision: boolean
+  onSelect: (spanId: string) => void
+}
+
+const WORKFLOW_NODE_TYPES: NodeTypes = {
+  workflow: WorkflowNode,
+}
+
+const WORKFLOW_NODES: WorkflowNodeConfig[] = [
+  {
+    id: 'receive',
+    label: '接收工单',
+    role: '入口节点',
+    note: '创建状态与 trace',
+    x: 0,
+    y: 260,
+    icon: Inbox,
+  },
+  {
+    id: 'classify',
+    label: '意图分类',
+    role: 'Classifier Agent',
+    note: '分类、优先级、风险',
+    x: 260,
+    y: 260,
+    icon: Tags,
+  },
+  {
+    id: 'route',
+    label: '条件路由',
+    role: 'Router',
+    note: '自动答复/处理/升级',
+    x: 520,
+    y: 260,
+    icon: RouteIcon,
+  },
+  {
+    id: 'auto_reply',
+    label: '自动答复',
+    role: '低风险分支',
+    note: '咨询类快速响应',
+    x: 800,
+    y: 80,
+    icon: MessageSquareText,
+  },
+  {
+    id: 'process',
+    label: '智能处理',
+    role: 'Processor Agent',
+    note: 'RAG + 工具调用',
+    x: 800,
+    y: 260,
+    icon: Zap,
+  },
+  {
+    id: 'escalate',
+    label: '升级处理',
+    role: '风险分支',
+    note: '触发人工审核',
+    x: 800,
+    y: 440,
+    icon: TriangleAlert,
+  },
+  {
+    id: 'review',
+    label: '质量审核',
+    role: 'Reviewer Agent',
+    note: '评分与返工判断',
+    x: 1080,
+    y: 260,
+    icon: ShieldCheck,
+  },
+  {
+    id: 'finalize_knowledge_gap',
+    label: '知识缺口归档',
+    role: '兜底节点',
+    note: '不可重试场景',
+    x: 1360,
+    y: 0,
+    icon: FileWarning,
+  },
+  {
+    id: 'retry_check',
+    label: '重试检查',
+    role: 'Retry Gate',
+    note: '返工次数控制',
+    x: 1360,
+    y: 260,
+    icon: RotateCcw,
+  },
+  {
+    id: 'request_user_input',
+    label: '请求补充',
+    role: '用户交互节点',
+    note: '等待用户补充信息',
+    x: 1360,
+    y: 520,
+    icon: HelpCircle,
+  },
+  {
+    id: 'notify',
+    label: '结果通知',
+    role: 'Notification',
+    note: '写回处理结果',
+    x: 1640,
+    y: 80,
+    icon: Bell,
+  },
+  {
+    id: 'human_review_wait',
+    label: '人工审核等待',
+    role: 'Human Review',
+    note: '生成审核单',
+    x: 1640,
+    y: 440,
+    icon: UserRoundCheck,
+  },
+  {
+    id: 'complete',
+    label: '完成归档',
+    role: '终态节点',
+    note: '结束 LangGraph',
+    x: 1920,
+    y: 180,
+    icon: CheckCircle2,
+  },
+  {
+    id: 'handle_failure',
+    label: '异常兜底',
+    role: '失败终态',
+    note: '错误处理与记录',
+    x: 1920,
+    y: 520,
+    icon: TriangleAlert,
+  },
+]
+
+const WORKFLOW_EDGES: WorkflowEdgeConfig[] = [
+  { from: 'receive', to: 'classify' },
+  { from: 'classify', to: 'route' },
+  { from: 'route', to: 'auto_reply', label: '咨询' },
+  { from: 'route', to: 'process', label: '处理' },
+  { from: 'route', to: 'escalate', label: '升级' },
+  { from: 'auto_reply', to: 'notify' },
+  { from: 'process', to: 'review' },
+  { from: 'review', to: 'finalize_knowledge_gap', label: '知识缺口' },
+  { from: 'review', to: 'retry_check', label: '返工' },
+  { from: 'review', to: 'request_user_input', label: '需补充' },
+  { from: 'review', to: 'notify', label: '通过' },
+  { from: 'finalize_knowledge_gap', to: 'notify' },
+  { from: 'retry_check', to: 'process', label: '重试', dashed: true },
+  { from: 'retry_check', to: 'human_review_wait', label: '超限' },
+  { from: 'retry_check', to: 'notify', label: '兜底' },
+  { from: 'escalate', to: 'human_review_wait' },
+  { from: 'notify', to: 'complete' },
+  { from: 'human_review_wait', to: 'complete', dashed: true },
+]
 
 export default function SpanTreeView() {
   const [ticketInput, setTicketInput] = useState('')
@@ -116,9 +341,9 @@ export default function SpanTreeView() {
   return (
     <div className="space-y-4 p-4 md:p-6">
       <header>
-        <h1 className="text-xl font-semibold">Trace 决策树</h1>
+        <h1 className="text-xl font-semibold">多 Agent 状态机画布</h1>
         <p className="text-sm text-muted-foreground">
-          输入工单 ID 查看 LangGraph 完整执行轨迹与决策点
+          输入工单 ID 查看 LangGraph 节点编排、执行轨迹与决策点
         </p>
       </header>
 
@@ -148,6 +373,8 @@ export default function SpanTreeView() {
         </CardContent>
       </Card>
 
+      <StateMachineCanvas trace={trace} onSelect={handleSpanClick} />
+
       {error && (
         <Card className="border-rose-500/40">
           <CardContent className="text-sm text-rose-300">{error}</CardContent>
@@ -161,7 +388,7 @@ export default function SpanTreeView() {
           {/* 左 + 中：span 树 */}
           <Card className="xl:col-span-2">
             <CardHeader>
-              <CardTitle>Span 树（点击查看详情）</CardTitle>
+              <CardTitle>Trace 证据树（点击查看详情）</CardTitle>
             </CardHeader>
             <CardContent>
               <SpanTreeRenderer
@@ -209,6 +436,382 @@ export default function SpanTreeView() {
       </Sheet>
     </div>
   )
+}
+
+function StateMachineCanvas({
+  trace,
+  onSelect,
+}: {
+  trace: AdminTraceDetail | null
+  onSelect: (spanId: string) => void
+}) {
+  const flatSpans = useMemo(() => flattenSpans(trace?.spans ?? []), [trace?.spans])
+  const spanByNode = useMemo(() => {
+    const map = new Map<string, Span>()
+    flatSpans.forEach((span) => {
+      const normalized = normalizeWorkflowName(span.name)
+      const matched = WORKFLOW_NODES.find((node) => normalized === node.id)
+      if (matched && !map.has(matched.id)) {
+        map.set(matched.id, span)
+      }
+    })
+    return map
+  }, [flatSpans])
+
+  const decisionNodeIds = useMemo(() => {
+    const ids = new Set<string>()
+    trace?.decisions.forEach((decision) => {
+      const normalized = normalizeWorkflowName(decision.span_name ?? '')
+      WORKFLOW_NODES.forEach((node) => {
+        if (normalized === node.id) ids.add(node.id)
+      })
+    })
+    return ids
+  }, [trace?.decisions])
+
+  const executedCount = WORKFLOW_NODES.filter((node) => spanByNode.has(node.id)).length
+  const errorCount = flatSpans.filter((span) => span.status === 'error').length
+  const fallbackCount = flatSpans.filter((span) => span.status === 'fallback').length
+  const baseNodes = useMemo<Node<WorkflowNodeData>[]>(
+    () =>
+      WORKFLOW_NODES.map((node) => ({
+        id: node.id,
+        type: 'workflow',
+        position: { x: node.x, y: node.y },
+        data: {
+          config: node,
+          span: spanByNode.get(node.id),
+          hasDecision: decisionNodeIds.has(node.id),
+          onSelect,
+        },
+        draggable: true,
+        selectable: true,
+        sourcePosition: node.sourcePosition ?? Position.Right,
+        targetPosition: node.targetPosition ?? Position.Left,
+      })),
+    [decisionNodeIds, onSelect, spanByNode]
+  )
+  const baseEdges = useMemo<Edge[]>(
+    () =>
+      WORKFLOW_EDGES.map((edge) => {
+        const active = spanByNode.has(edge.from) && spanByNode.has(edge.to)
+        return {
+          id: `${edge.from}-${edge.to}`,
+          source: edge.from,
+          target: edge.to,
+          label: edge.label,
+          animated: active && edge.dashed,
+          type: 'smoothstep',
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 18,
+            height: 18,
+          },
+          style: {
+            strokeWidth: active ? 2.2 : 1.4,
+            strokeDasharray: edge.dashed ? '6 5' : undefined,
+            stroke: active ? 'var(--primary)' : 'color-mix(in srgb, var(--muted-foreground) 42%, transparent)',
+          },
+          labelStyle: {
+            fill: 'var(--muted-foreground)',
+            fontSize: 11,
+            fontWeight: 500,
+          },
+          labelBgStyle: {
+            fill: 'var(--background)',
+            fillOpacity: 0.92,
+          },
+          labelBgPadding: [6, 4] as [number, number],
+          labelBgBorderRadius: 4,
+        } satisfies Edge
+      }),
+    [spanByNode]
+  )
+  const [nodes, setNodes, onNodesChangeBase] = useNodesState(baseNodes)
+  const [edges, setEdges, onEdgesChange] = useEdgesState(baseEdges)
+  const [fullscreenOpen, setFullscreenOpen] = useState(false)
+
+  useEffect(() => {
+    setNodes((current) =>
+      baseNodes.map((node) => {
+        const currentNode = current.find((item) => item.id === node.id)
+        return currentNode ? { ...node, position: currentNode.position } : node
+      })
+    )
+  }, [baseNodes, setNodes])
+
+  useEffect(() => {
+    setEdges(baseEdges)
+  }, [baseEdges, setEdges])
+
+  function handleNodesChange(changes: NodeChange<Node<WorkflowNodeData>>[]) {
+    onNodesChangeBase(changes)
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <GitBranch className="h-4 w-4 text-primary" />
+              LangGraph 状态机画布
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              展示 receive → classify → route → process/review → notify/complete 的多智能体协同路径
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="outline">节点 {WORKFLOW_NODES.length}</Badge>
+            <Badge variant="outline">已执行 {executedCount}</Badge>
+            <Badge variant="outline">决策 {trace?.decision_count ?? 0}</Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => setFullscreenOpen(true)}
+            >
+              <Maximize2 className="mr-1 h-3.5 w-3.5" />
+              全屏
+            </Button>
+            {errorCount > 0 && (
+              <Badge variant="outline" className="border-destructive/30 bg-destructive/10 text-destructive">
+                异常 {errorCount}
+              </Badge>
+            )}
+            {fallbackCount > 0 && (
+              <Badge variant="outline" className="border-warning/30 bg-warning/10 text-warning">
+                兜底 {fallbackCount}
+              </Badge>
+            )}
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <WorkflowCanvasSurface
+          nodes={nodes}
+          edges={edges}
+          heightClass="h-[600px]"
+          onNodesChange={handleNodesChange}
+          onEdgesChange={onEdgesChange}
+        />
+      </CardContent>
+      <Dialog open={fullscreenOpen} onOpenChange={setFullscreenOpen}>
+        <DialogContent className="flex h-[calc(100vh-2rem)] !w-[calc(100vw-2rem)] !max-w-[calc(100vw-2rem)] flex-col gap-3 border-border bg-card p-4">
+          <DialogHeader className="shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <GitBranch className="h-4 w-4 text-primary" />
+              LangGraph 状态机画布
+            </DialogTitle>
+          </DialogHeader>
+          <WorkflowCanvasSurface
+            nodes={nodes}
+            edges={edges}
+            heightClass="h-full"
+            className="flex-1"
+            onNodesChange={handleNodesChange}
+            onEdgesChange={onEdgesChange}
+          />
+        </DialogContent>
+      </Dialog>
+    </Card>
+  )
+}
+
+function WorkflowCanvasSurface({
+  nodes,
+  edges,
+  heightClass,
+  className,
+  onNodesChange,
+  onEdgesChange,
+}: {
+  nodes: Node<WorkflowNodeData>[]
+  edges: Edge[]
+  heightClass: string
+  className?: string
+  onNodesChange: (changes: NodeChange<Node<WorkflowNodeData>>[]) => void
+  onEdgesChange: (changes: Parameters<ReturnType<typeof useEdgesState<Edge>>[2]>[0]) => void
+}) {
+  return (
+    <div
+      className={cn(
+        'relative min-h-0 overflow-hidden rounded-lg border border-border bg-background',
+        heightClass,
+        className
+      )}
+    >
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        nodeTypes={WORKFLOW_NODE_TYPES}
+        fitView
+        fitViewOptions={{ padding: 0.18 }}
+        minZoom={0.28}
+        maxZoom={1.6}
+        nodesDraggable
+        nodesConnectable={false}
+        elementsSelectable
+        panOnDrag={[1, 2]}
+        selectionOnDrag
+        proOptions={{ hideAttribution: true }}
+        className="workflow-canvas"
+      >
+        <Background
+          variant={BackgroundVariant.Dots}
+          gap={24}
+          size={1.1}
+          color="color-mix(in srgb, var(--muted-foreground) 34%, transparent)"
+        />
+        <MiniMap
+          pannable
+          zoomable
+          nodeStrokeWidth={2}
+          nodeBorderRadius={8}
+          nodeColor={(node) => miniMapNodeColor((node.data as WorkflowNodeData).span?.status)}
+          maskColor="color-mix(in srgb, var(--background) 70%, transparent)"
+          className="!border !border-border !bg-card/95"
+        />
+        <Controls
+          showInteractive={false}
+          className="!border !border-border !bg-card/95 [&_button]:!border-border [&_button]:!bg-card [&_button]:!text-foreground"
+        />
+      </ReactFlow>
+      <div className="pointer-events-none absolute left-4 top-4 flex items-center gap-4 rounded-md border border-border bg-card/95 px-3 py-2 text-[11px] text-muted-foreground shadow-sm">
+        <span className="flex items-center gap-1.5">
+          <CircleDot className="h-3 w-3 text-primary" />
+          Trace 高亮
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-success" />
+          成功
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-warning" />
+          兜底
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full bg-destructive" />
+          异常
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function WorkflowNode({ data }: NodeProps<Node<WorkflowNodeData>>) {
+  const { config, span, hasDecision, onSelect } = data
+  const Icon = config.icon
+  const content = (
+    <>
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="!h-2.5 !w-2.5 !border-border !bg-muted-foreground"
+      />
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className={workflowIconClass(span?.status)}>
+            <Icon className="h-4 w-4" />
+          </span>
+          <span className="truncate text-sm font-medium">{config.label}</span>
+        </div>
+        <span className={workflowStatusDotClass(span?.status)} />
+      </div>
+      <div className="mt-1 truncate font-mono text-[10px] text-muted-foreground">
+        {config.id}
+      </div>
+      <div className="mt-2 flex items-center justify-between gap-2 text-[11px]">
+        <span className="truncate text-muted-foreground">{config.role}</span>
+        {span ? (
+          <span className="font-mono text-foreground/80">{formatDuration(span.duration)}</span>
+        ) : (
+          <span className="text-muted-foreground/70">未触发</span>
+        )}
+      </div>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <span className="truncate text-[10px] text-muted-foreground/80">{config.note}</span>
+        {hasDecision && (
+          <Badge variant="outline" className="border-primary/30 bg-primary/10 px-1 py-0 text-[9px] text-primary">
+            决策
+          </Badge>
+        )}
+      </div>
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="!h-2.5 !w-2.5 !border-border !bg-muted-foreground"
+      />
+    </>
+  )
+
+  if (span) {
+    return (
+      <button
+        type="button"
+        className={workflowNodeClass(span.status)}
+        style={{ width: WORKFLOW_NODE_WIDTH, height: WORKFLOW_NODE_HEIGHT }}
+        onClick={() => onSelect(span.span_id)}
+      >
+        {content}
+      </button>
+    )
+  }
+
+  return (
+    <div
+      className={workflowNodeClass(undefined)}
+      style={{ width: WORKFLOW_NODE_WIDTH, height: WORKFLOW_NODE_HEIGHT }}
+    >
+      {content}
+    </div>
+  )
+}
+
+function flattenSpans(spans: Span[]): Span[] {
+  return spans.flatMap((span) => [span, ...flattenSpans(span.children ?? [])])
+}
+
+function normalizeWorkflowName(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s-]+/g, '_')
+}
+
+function workflowNodeClass(status: string | undefined): string {
+  const base =
+    'relative rounded-lg border bg-card/95 p-3 text-left shadow-sm transition-colors'
+  if (status === 'error') {
+    return `${base} border-destructive/45 shadow-destructive/10 hover:border-destructive`
+  }
+  if (status === 'fallback') {
+    return `${base} border-warning/45 shadow-warning/10 hover:border-warning`
+  }
+  if (status) {
+    return `${base} border-primary/45 shadow-primary/10 hover:border-primary`
+  }
+  return `${base} border-border opacity-75`
+}
+
+function workflowIconClass(status: string | undefined): string {
+  if (status === 'error') return 'rounded bg-destructive/15 p-1 text-destructive'
+  if (status === 'fallback') return 'rounded bg-warning/15 p-1 text-warning'
+  if (status) return 'rounded bg-primary/15 p-1 text-primary'
+  return 'rounded bg-muted p-1 text-muted-foreground'
+}
+
+function workflowStatusDotClass(status: string | undefined): string {
+  if (status === 'error') return 'mt-1 h-2.5 w-2.5 rounded-full bg-destructive'
+  if (status === 'fallback') return 'mt-1 h-2.5 w-2.5 rounded-full bg-warning'
+  if (status) return 'mt-1 h-2.5 w-2.5 rounded-full bg-success'
+  return 'mt-1 h-2.5 w-2.5 rounded-full bg-muted-foreground/35'
+}
+
+function miniMapNodeColor(status: string | undefined): string {
+  if (status === 'error') return 'var(--destructive)'
+  if (status === 'fallback') return 'var(--warning)'
+  if (status) return 'var(--success)'
+  return 'var(--secondary)'
 }
 
 function SpanTreeRenderer({

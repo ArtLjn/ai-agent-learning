@@ -41,7 +41,7 @@ const navItems: NavItem[] = [
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer'] },
   { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['developer'] },
   { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['developer'] },
-  { to: '/dev/traces', icon: GitBranch, label: 'Trace 决策树', roles: ['developer'] },
+  { to: '/dev/traces', icon: GitBranch, label: '状态机画布', roles: ['developer'] },
   { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer'] },
   { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin', 'developer'] },
 ]
