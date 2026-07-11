@@ -1,8 +1,8 @@
 # HTTP API 接口协议
 
-> 版本：v2.1
-> 日期：2026-07-09
-> 状态：v2.1 对齐业务架构梳理；移除 per-user 配额接口口径，Token 仅保留系统级统计接口
+> 版本：v2.2
+> 日期：2026-07-10
+> 状态：v2.2 对齐企业内部服务台四分区架构；移除 per-user 配额接口口径，Token 仅保留系统级统计接口
 > 关联设计：[业务架构梳理](../00_预设计/04_业务架构梳理.md) · [11_RAG服务独立项目设计.md](../01_正式设计/11_RAG服务独立项目设计.md) · [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md) · [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md)
 
 ## 0. v2.0 变更摘要
@@ -10,8 +10,8 @@
 | 变更类型 | 内容 |
 | --- | --- |
 | 新增独立项目 | `rag-service`（端口 8001），提供 `/parse` `/ingest` `/retrieve` `/rerank` `/collections/{name}/documents` `/health` |
-| 主系统新增 API（开发人员模块） | `/api/admin/traces/*`、`/api/admin/prompts/*`、`/api/admin/rag/debug`、`/api/admin/stats/tokens*` |
-| 主系统新增 API（管理员模块） | `/api/admin/users`、`PATCH /api/admin/users/{user_id}`、`/api/admin/stats/adoption` |
+| 主系统新增 API（系统运维管理端） | `/api/admin/traces/*`、`/api/admin/prompts/*`、`/api/admin/rag/debug`、`/api/admin/stats/tokens*` |
+| 主系统新增 API（服务台处理端 / 系统运维管理端） | `/api/admin/users`、`PATCH /api/admin/users/{user_id}`、`/api/admin/stats/adoption` |
 | 通信契约 | 主系统通过 `tools/rag_client.py`（待建）调用 rag-service，详见 [03_Agent内部数据契约.md](./03_Agent内部数据契约.md) 第 10 章 |
 
 > v1.x 的 `/api/tickets`、`/api/reviews`、`/api/knowledge` 等接口保持不变，本章新增内容追加在原章节之后。
@@ -707,7 +707,7 @@ Cross-Encoder 重排。通常与 `/retrieve` 串行使用：`/retrieve` 召回 t
 
 > 以下接口均挂在主系统（端口 8000），统一 `/api/admin/*` 前缀，要求 admin 鉴权（与第 7 章人工审核接口同套 `require_admin`）。设计背景见 [13_开发人员工作台设计.md](../01_正式设计/13_开发人员工作台设计.md) 与 [12_Token成本控制台设计.md](../01_正式设计/12_Token成本控制台设计.md)。
 
-### 10.1 开发人员模块
+### 10.1 系统运维管理端
 
 #### 10.1.1 GET /api/admin/traces/{ticket_id}
 
@@ -831,7 +831,7 @@ rag-service 不可用时返回 503，主系统不缓存降级结果（调试场�
 | --- | --- | --- | --- |
 | `days` | int | 否 | 默认 7（最近 N 天 × 24 小时矩阵） |
 
-### 10.2 管理员模块
+### 10.2 服务台处理端 / 系统运维管理端
 
 #### 10.2.1 GET /api/admin/users
 

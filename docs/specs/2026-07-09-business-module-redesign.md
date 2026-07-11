@@ -2,7 +2,7 @@
 
 > 日期：2026-07-09
 > 依据：[docs/design-spec](../design-spec/) 现有设计文档
-> 状态：用于对已成型系统进行业务导向整理，不改变系统实现范围
+> 状态：业务重构整理稿；最终定稿口径见 [2026-07-10-ticket-processing-system-final-design.md](./2026-07-10-ticket-processing-system-final-design.md)
 
 ## 1. 编写目的
 

@@ -1,27 +1,27 @@
 # 知识库与 RAG 设计
 
-> 版本：v2.0
-> 日期：2026-07-01
-> 状态：v2.0 重新定位（RAG 全栈 → 管理员模块知识库 CRUD 视角）
-> 所属模块：管理员模块（详见 [02_系统功能与总体架构.md](../00_预设计/02_系统功能与总体架构.md) 第 3.2 节）
+> 版本：v2.2
+> 日期：2026-07-10
+> 状态：v2.2 重新定位为服务台处理端的知识维护视角；RAG 算法细节由 rag-service 和智能算法与关键技术承载
+> 所属分区：服务台处理端 / 知识维护模块（详见 [02_系统功能与总体架构.md](../00_预设计/02_系统功能与总体架构.md) 第 4.2 节）
 
 ## v2.0 范围声明
 
-本文档聚焦**管理员模块的知识库 CRUD 视角**。RAG 算法、PDF 复杂解析、向量/BM25 混合检索、Cross-Encoder 重排等技术细节，迁移至独立文档 [11_RAG服务独立项目设计.md](./11_RAG服务独立项目设计.md)。本文档回答"管理员如何上传、查看、删除知识文档"，不回答"如何分块、如何检索"。
+本文档聚焦**服务台处理端的知识维护视角**。RAG 算法、PDF 复杂解析、向量/BM25 混合检索、Cross-Encoder 重排等技术细节，迁移至独立文档 [11_RAG服务独立项目设计.md](./11_RAG服务独立项目设计.md)。本文档回答"服务台知识维护员如何上传、查看、删除和发布知识文档"，不回答"如何分块、如何检索"。
 
 ## 1. 设计目标
 
-知识库管理是**管理员模块**的子功能，目标是让管理员通过 Web 界面完成知识文档的录入、列表查看与删除。具体职责：
+知识维护是**服务台处理端**的子功能，目标是让服务台知识维护员通过 Web 界面完成知识文档的录入、列表查看、删除、入库发布和更新。具体职责：
 
 | 职责 | 说明 |
 | --- | --- |
-| 文档上传 | 管理员填写 `title` / `content` / `category`，或上传 PDF/Markdown/TXT 文件 |
+| 文档上传 | 知识维护员填写 `title` / `content` / `category`，或上传 PDF/Markdown/TXT 文件 |
 | 文档列表 | 按 `category`、上传时间筛选与分页 |
 | 文档删除 | 软删除（标记 `deleted_at`）或硬删除（按 collection 与 doc_id 调 rag-service `/collections/{name}/documents/{doc_id}` DELETE） |
 | 触发向量化 | 上传成功后调用 rag-service `/ingest`，由 rag-service 完成解析→分块→向量化→写入 Qdrant |
-| 结果反馈 | 把 rag-service 返回的 `chunk_count`、`collection`、失败原因回显给管理员 |
+| 结果反馈 | 把 rag-service 返回的 `chunk_count`、`collection`、失败原因回显给知识维护员 |
 
-**不在管理员模块职责范围内**（由 rag-service 承担，详见 [11](./11_RAG服务独立项目设计.md)）：
+**不在服务台处理端职责范围内**（由 rag-service 承担，详见 [11](./11_RAG服务独立项目设计.md)）：
 
 - PDF 版面分析、表格识别、公式还原、智能分块
 - Embedding 生成、Qdrant 写入
@@ -34,7 +34,7 @@
 
 ```mermaid
 flowchart LR
-    Admin[管理员] -->|上传/删除| WebUI[Web 知识库页]
+    Admin[知识维护员] -->|上传/删除/发布| WebUI[Web 知识库页]
     WebUI --> API[主系统 API<br/>/api/knowledge]
     API -->|HTTP /ingest<br/>HTTP /collections DELETE| Rag[rag-service]
     Rag -.解析分块向量化.-> Qdrant[(Qdrant)]

@@ -42,6 +42,9 @@ logs/
 .claude/worktrees/
 web/.claude/
 
+# Codex 本地技能产物
+.codex/
+
 # Node 临时产物
 web/.node_modules-trashed
 
