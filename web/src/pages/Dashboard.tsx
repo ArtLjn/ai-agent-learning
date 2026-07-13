@@ -1,10 +1,12 @@
 import { useMemo, type ReactNode } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useAnalytics, useTickets } from '@/hooks/useApi'
 import { useReviewQueue, useReviewStats } from '@/hooks/useReviews'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategoryBadge, PriorityBadge, StatusBadge } from '@/components/layout/StatusBadge'
-import type { DailyStat, EfficiencyStats, ResolutionStats, Ticket } from '@/types'
+import type { Analytics, DailyStat, EfficiencyStats, ResolutionStats, Ticket } from '@/types'
 import {
   AlertTriangle,
   BarChart3,
@@ -74,6 +76,8 @@ type DashboardTicket = Omit<Ticket, 'status'> & {
   status: string
 }
 
+type DissatisfiedTicket = NonNullable<NonNullable<Analytics['service_desk']>['dissatisfied_tickets']>[number]
+
 function toPercent(value: number | undefined | null, digits = 0) {
   return `${((value ?? 0) * 100).toFixed(digits)}%`
 }
@@ -123,6 +127,7 @@ function createDistribution(
 }
 
 export function Dashboard() {
+  const navigate = useNavigate()
   const { data, isLoading: analyticsLoading } = useAnalytics()
   const { data: tickets = [], isLoading: ticketsLoading } = useTickets({ limit: '100' })
   const { data: reviewStats, isLoading: reviewStatsLoading } = useReviewStats()
@@ -159,7 +164,12 @@ export function Dashboard() {
       reviewStats?.ai_adoption_rate ??
       0,
     )
-    const dissatisfiedFeedback = Number(data?.service_desk?.feedback_summary?.dissatisfied ?? 0)
+    const feedbackSummary = data?.service_desk?.feedback_summary
+    const satisfiedFeedback = Number(feedbackSummary?.satisfied ?? 0)
+    const dissatisfiedFeedback = Number(feedbackSummary?.dissatisfied ?? 0)
+    const totalFeedback = Number(feedbackSummary?.total ?? 0)
+    const satisfactionRate = Number(feedbackSummary?.satisfaction_rate ?? 0)
+    const dissatisfiedTickets = data?.service_desk?.dissatisfied_tickets ?? []
 
     const dailyChart: DailyChartItem[] = (data?.daily_stats ?? []).map((item) => {
       const created = getDailyTotal(item)
@@ -256,7 +266,11 @@ export function Dashboard() {
       latestDay,
       maxReviewWaitSeconds,
       reviewAdoptionRate,
+      satisfiedFeedback,
       dissatisfiedFeedback,
+      totalFeedback,
+      satisfactionRate,
+      dissatisfiedTickets,
       healthScore,
       suggestions,
     }
@@ -381,11 +395,20 @@ export function Dashboard() {
         <CompactMetric
           label="不满意反馈"
           value={dashboard.dissatisfiedFeedback}
-          detail="可从服务台钻取复核"
+          detail={`${toPercent(dashboard.satisfactionRate)} 满意率`}
           icon={ShieldCheck}
           color={dashboard.dissatisfiedFeedback > 0 ? 'text-warning' : 'text-success'}
         />
       </div>
+
+      <UserFeedbackPanel
+        satisfied={dashboard.satisfiedFeedback}
+        dissatisfied={dashboard.dissatisfiedFeedback}
+        total={dashboard.totalFeedback}
+        satisfactionRate={dashboard.satisfactionRate}
+        tickets={dashboard.dissatisfiedTickets}
+        onOpenTicket={(ticketId) => navigate(`/tickets/${ticketId}`)}
+      />
 
       <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
         <ChartCard
@@ -781,6 +804,149 @@ function TicketListCard({
         )}
       </CardContent>
     </Card>
+  )
+}
+
+function UserFeedbackPanel({
+  satisfied,
+  dissatisfied,
+  total,
+  satisfactionRate,
+  tickets,
+  onOpenTicket,
+}: {
+  satisfied: number
+  dissatisfied: number
+  total: number
+  satisfactionRate: number
+  tickets: DissatisfiedTicket[]
+  onOpenTicket: (ticketId: string) => void
+}) {
+  const satisfiedPercent = total > 0 ? (satisfied / total) * 100 : 0
+  const dissatisfiedPercent = total > 0 ? (dissatisfied / total) * 100 : 0
+
+  return (
+    <Card className="border-border bg-card">
+      <CardHeader className="pb-2">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2 text-sm font-medium">
+              <ShieldCheck className="h-4 w-4 text-primary" />
+              用户反馈复核
+            </CardTitle>
+            <p className="mt-1 text-xs text-muted-foreground">
+              将验收结果转成服务台动作：满意用于闭环统计，不满意进入人工复核队列。
+            </p>
+          </div>
+          <div className="flex items-center gap-2 rounded-md border border-border bg-background/50 px-3 py-2">
+            <span className="text-xs text-muted-foreground">满意率</span>
+            <span className={`text-lg font-semibold ${satisfactionRate >= 0.8 || total === 0 ? 'text-success' : 'text-warning'}`}>
+              {toPercent(satisfactionRate)}
+            </span>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="space-y-4 rounded-lg border border-border bg-background/35 p-4">
+            <div className="grid grid-cols-3 gap-3">
+              <FeedbackStat label="总反馈" value={total} />
+              <FeedbackStat label="满意" value={satisfied} tone="success" />
+              <FeedbackStat label="不满意" value={dissatisfied} tone={dissatisfied > 0 ? 'warning' : 'success'} />
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>反馈分布</span>
+                <span>{total > 0 ? `${satisfied} / ${dissatisfied}` : '暂无反馈'}</span>
+              </div>
+              <div className="flex h-3 overflow-hidden rounded-full bg-muted">
+                <div
+                  className="bg-success"
+                  style={{ width: `${Math.max(satisfiedPercent, satisfied > 0 ? 8 : 0)}%` }}
+                  aria-label="满意反馈占比"
+                />
+                <div
+                  className="bg-warning"
+                  style={{ width: `${Math.max(dissatisfiedPercent, dissatisfied > 0 ? 8 : 0)}%` }}
+                  aria-label="不满意反馈占比"
+                />
+              </div>
+            </div>
+            <div className="rounded-md border border-border bg-card/70 p-3 text-xs leading-5 text-muted-foreground">
+              {dissatisfied > 0
+                ? `当前有 ${dissatisfied} 条不满意反馈需要服务台复核，优先核对申诉原因和人工审核状态。`
+                : '暂无不满意反馈，服务台可继续关注新完成工单的验收情况。'}
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-border bg-background/35">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-foreground">不满意工单</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">点击进入工单详情，查看申诉与复核状态。</p>
+              </div>
+            </div>
+            {tickets.length === 0 ? (
+              <div className="p-4">
+                <EmptyBlock text="暂无不满意反馈工单" />
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {tickets.slice(0, 6).map((ticket) => (
+                  <div key={ticket.ticket_id} className="grid gap-3 px-4 py-3 lg:grid-cols-[1fr_auto] lg:items-center">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs text-primary">{ticket.ticket_id}</span>
+                        {ticket.priority && <PriorityBadge priority={ticket.priority} />}
+                        <StatusBadge status={ticket.status} />
+                        {ticket.category && <CategoryBadge category={ticket.category} />}
+                      </div>
+                      <p className="mt-2 line-clamp-1 text-sm text-foreground/90">
+                        {ticket.trigger_reason || '员工反馈不满意，等待服务台复核。'}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        触发类型：{ticket.trigger_type || 'user_request'} · {new Date(ticket.created_at).toLocaleString('zh-CN', {
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </div>
+                    <Button variant="outline" size="sm" onClick={() => onOpenTicket(ticket.ticket_id)}>
+                      查看复核
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function FeedbackStat({
+  label,
+  value,
+  tone = 'default',
+}: {
+  label: string
+  value: number
+  tone?: 'default' | 'success' | 'warning'
+}) {
+  const toneClass = tone === 'success'
+    ? 'text-success'
+    : tone === 'warning'
+      ? 'text-warning'
+      : 'text-foreground'
+
+  return (
+    <div className="rounded-md border border-border bg-card/70 p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className={`mt-1 text-2xl font-semibold ${toneClass}`}>{value}</p>
+    </div>
   )
 }
 
