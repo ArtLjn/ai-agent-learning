@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTickets, useCreateTicket } from '@/hooks/useApi'
 import { api } from '@/lib/api'
+import { canCreateEmployeeTicket } from '@/lib/ticketDetailPermissions'
 import { getKeyMaterialPrompt, SERVICE_TYPE_OPTIONS } from '@/lib/ticketPresentation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -262,7 +263,7 @@ export function Tickets() {
   if (category) params.category = category
 
   const { data: tickets = [], isLoading, refetch } = useTickets(params)
-  const isEmployee = auth?.role === 'user'
+  const canCreateTicket = canCreateEmployeeTicket(auth?.role)
 
   useEffect(() => {
     let alive = true
@@ -312,15 +313,15 @@ export function Tickets() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold">
-            {isEmployee ? '我的服务请求' : '服务台工单受理'}
+            {canCreateTicket ? '我的服务请求' : '服务台工单受理'}
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {isEmployee
+            {canCreateTicket
               ? '提交内部服务请求并追踪处理进度'
               : '查看服务请求队列，核查分类优先级并跟进人工兜底事项'}
           </p>
         </div>
-        {isEmployee && (
+        {canCreateTicket && (
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger render={<Button size="sm" />}>
               <Plus className="h-4 w-4" />
@@ -349,7 +350,7 @@ export function Tickets() {
         )}
       </div>
 
-      {isEmployee && <AgentTicketComposer onCreated={() => refetch()} />}
+      {canCreateTicket && <AgentTicketComposer onCreated={() => refetch()} />}
 
       <Card className="border-border bg-card">
         <CardContent className="p-3">
@@ -357,7 +358,7 @@ export function Tickets() {
             <div className="relative max-w-xs flex-1">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder={isEmployee ? '搜索我的请求...' : '搜索待受理工单...'}
+                placeholder={canCreateTicket ? '搜索我的请求...' : '搜索待受理工单...'}
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value)

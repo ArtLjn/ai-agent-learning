@@ -20,7 +20,11 @@ import { DecisionTimeline } from '@/components/trace/DecisionTimeline'
 import { LiveExecutionFlow } from '@/components/trace/LiveExecutionFlow'
 import { Markdown } from '@/components/ui/markdown'
 import { formatDuration } from '@/components/trace/spanTypes'
-import { canUseTicketReplyComposer } from '@/lib/ticketDetailPermissions'
+import {
+  canSubmitTicketFeedback,
+  canUseTicketReplyComposer,
+  canViewExecutionTrace,
+} from '@/lib/ticketDetailPermissions'
 import { getTicketSupplementPrompt } from '@/lib/ticketSupplementPrompt'
 import {
   extractUserTicketContent,
@@ -45,8 +49,8 @@ export function TicketDetail() {
   const isRunning = !!ticketStatus && !['completed', 'failed'].includes(ticketStatus)
   const role = auth?.role
   const isUser = role === 'user'
-  const isDeveloper = role === 'developer'
-  const { data: trace } = useTicketTrace(id!, isRunning, isDeveloper)
+  const showTrace = canViewExecutionTrace(role)
+  const { data: trace } = useTicketTrace(id!, isRunning, showTrace)
   const traceDetail = trace as TraceDetail | undefined
   const traceId = traceDetail?.trace_id || ''
   const { data: decisionsResp } = useTraceDecisions(traceId)
@@ -177,7 +181,7 @@ export function TicketDetail() {
 
       <div className="grid grid-cols-12 gap-6">
         {/* 左侧：工单上下文 + 过程记录 */}
-        <div className={isDeveloper ? 'col-span-5 space-y-4' : 'col-span-12 space-y-4'}>
+        <div className={showTrace ? 'col-span-5 space-y-4' : 'col-span-12 space-y-4'}>
           {/* 基本信息卡片 */}
           <Card className="bg-card border-border">
             <CardHeader className="pb-3">
@@ -291,7 +295,7 @@ export function TicketDetail() {
           <FeedbackCard
             status={ticket.status}
             satisfied={ticket.satisfied}
-            canSubmit={role === 'user'}
+            canSubmit={canSubmitTicketFeedback(role)}
             submitting={submitFeedback.isPending}
             appealReason={appealReason}
             onAppealReasonChange={setAppealReason}
@@ -302,7 +306,7 @@ export function TicketDetail() {
           />
         </div>
 
-        {isDeveloper && (
+        {showTrace && (
           <TraceSection
             ticketId={ticket.ticket_id}
             ticketStatus={ticket.status}
@@ -314,7 +318,7 @@ export function TicketDetail() {
         )}
       </div>
 
-      {isDeveloper && (
+      {showTrace && (
         <SpanDetailSheet
           span={selectedSpan}
           open={sheetOpen}

@@ -1,23 +1,25 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useReviewQueue, useReviewDetail, useSubmitDecision } from '@/hooks/useReviews'
 import { useReviewEvents } from '@/hooks/useReviewEvents'
+import { api, type AuthState } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { ReviewDecision, ReviewQueueItem as ReviewQueueItemType } from '@/types'
 import { ReviewQueue } from '@/components/reviews/ReviewQueue'
 import { ReviewDetailPanel } from '@/components/reviews/ReviewDetailPanel'
 import { AIProcessingResultCard } from '@/components/reviews/AIProcessingResultCard'
 import { AIAssistanceCard } from '@/components/reviews/AIAssistanceCard'
-import { TraceTimeline } from '@/components/reviews/TraceTimeline'
 import { DecisionPanel } from '@/components/reviews/DecisionPanel'
+import { canSubmitReviewDecision } from '@/lib/ticketDetailPermissions'
 
 const DEFAULT_REVIEWER_ID = 'reviewer-001'
 
 export function ReviewWorkbench() {
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [reviewerId, setReviewerId] = useState<string>(DEFAULT_REVIEWER_ID)
+  const [auth, setAuth] = useState<AuthState | null>(null)
 
   // 筛选器
   const [statusFilter, setStatusFilter] = useState<string>('')
@@ -40,6 +42,7 @@ export function ReviewWorkbench() {
   const queueQuery = useReviewQueue(params)
   const detailQuery = useReviewDetail(selectedId)
   const submitMutation = useSubmitDecision()
+  const canDecide = canSubmitReviewDecision(auth?.role)
 
   const queue: ReviewQueueItemType[] = useMemo(
     () => queueQuery.data?.queue ?? [],
@@ -49,6 +52,21 @@ export function ReviewWorkbench() {
   // 自动选中第一个（仅当未选中且队列非空）
   const effectiveSelectedId = selectedId ?? queue[0]?.ticket_id ?? null
   const detail = detailQuery.data
+
+  useEffect(() => {
+    let alive = true
+    api
+      .getAuthState()
+      .then((state) => {
+        if (alive) setAuth(state)
+      })
+      .catch(() => {
+        if (alive) setAuth(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const onSelect = useCallback((ticketId: string) => {
     setSelectedId(ticketId)
@@ -241,20 +259,13 @@ export function ReviewWorkbench() {
 
               <ReviewStep
                 index={3}
-                title="核查 Trace 证据"
-                description="展开关键节点，查看输入、输出和元数据，确认失败或升级依据。"
-              >
-                <TraceTimeline ticketId={detail.ticket_id} />
-              </ReviewStep>
-
-              <ReviewStep
-                index={4}
                 title="提交人工决策"
                 description="选择通过、改写、重处理、请求补充或驳回，并填写决策理由。"
                 isLast
               >
-                <DecisionPanel
+                <ServiceDeskDecisionAction
                   key={detail.ticket_id}
+                  canSubmit={canDecide}
                   detail={detail}
                   reviewerId={reviewerId}
                   onReviewerIdChange={setReviewerId}
@@ -267,6 +278,29 @@ export function ReviewWorkbench() {
         </section>
       </div>
     </div>
+  )
+}
+
+function ServiceDeskDecisionAction({
+  canSubmit,
+  detail,
+  reviewerId,
+  onReviewerIdChange,
+  onSubmit,
+  submitting,
+}: Parameters<typeof DecisionPanel>[0] & { canSubmit: boolean }) {
+  if (!canSubmit) {
+    return null
+  }
+
+  return (
+    <DecisionPanel
+      detail={detail}
+      reviewerId={reviewerId}
+      onReviewerIdChange={onReviewerIdChange}
+      onSubmit={onSubmit}
+      submitting={submitting}
+    />
   )
 }
 
