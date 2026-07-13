@@ -22,3 +22,14 @@
 {"query":"员工要求工单加急，服务台按什么标准判断优先级？","collection":"ticket_knowledge","relevant":["service-desk-priority-and-escalation#0"],"tags":["priority","escalation"]}
 {"query":"RAG 没有命中制度文档，AI 应该直接回答吗？","collection":"ticket_knowledge","relevant":["knowledge-maintenance-guide#0","service-desk-priority-and-escalation#0"],"tags":["rag","knowledge-gap"]}
 {"query":"同一个加班餐补问题很多人问，怎么沉淀到知识库？","collection":"ticket_knowledge","relevant":["knowledge-maintenance-guide#0","employee-meal-subsidy-and-benefits#0"],"tags":["knowledge-base","meal-subsidy"]}
+{"query":"工资单在哪里看，社保公积金缴纳城市不对怎么办？","collection":"ticket_knowledge","relevant":["employee-payroll-social-insurance#0"],"tags":["payroll","social-insurance"]}
+{"query":"明天出差但差旅平台订不了酒店，需要提供什么信息？","collection":"ticket_knowledge","relevant":["employee-business-trip-travel#0"],"tags":["travel","booking"]}
+{"query":"客户来访怎么预约，访客车辆能不能登记？","collection":"ticket_knowledge","relevant":["employee-office-access-visitor#0"],"tags":["visitor","access"]}
+{"query":"新员工没有工位，团队搬迁要在哪里提交？","collection":"ticket_knowledge","relevant":["employee-workstation-seat-move#0"],"tags":["seat","move"]}
+{"query":"班车临时停运在哪里看，停车位怎么申请？","collection":"ticket_knowledge","relevant":["employee-cafeteria-shuttle-parking#0"],"tags":["shuttle","parking"]}
+{"query":"公司合同原件要寄出，收发室需要什么审批？","collection":"ticket_knowledge","relevant":["employee-express-mailroom#0","employee-legal-contract-seal#0"],"tags":["mailroom","contract"]}
+{"query":"新人必修课在 LearnHub 没有完成记录怎么办？","collection":"ticket_knowledge","relevant":["employee-training-learning#0"],"tags":["training","learnhub"]}
+{"query":"OKR 提交按钮是灰色，主管看不到我的绩效目标怎么办？","collection":"ticket_knowledge","relevant":["employee-performance-okr#0"],"tags":["okr","performance"]}
+{"query":"我要开英文在职证明办签证，需要盖章吗？","collection":"ticket_knowledge","relevant":["employee-proof-certificate#0"],"tags":["certificate","visa"]}
+{"query":"居家办公申请通过了，但 YunVPN 连不上内网系统怎么办？","collection":"ticket_knowledge","relevant":["employee-remote-work-policy#0","employee-vpn-network#0"],"tags":["remote-work","vpn"]}
+{"query":"合同还没走完审批，可以先让行政盖章吗？","collection":"ticket_knowledge","relevant":["employee-legal-contract-seal#0"],"tags":["legal","seal"]}

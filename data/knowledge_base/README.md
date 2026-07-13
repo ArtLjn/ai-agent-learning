@@ -25,6 +25,9 @@
 - 规章制度：考勤、请假、加班、餐补、福利、薪酬社保查询。
 - 行政办公：会议室、工位、门禁、打印、办公用品、快递收发。
 - 采购与报销：办公用品、软件服务、采购平台、审批流、发票、费用报销。
+- 员工证明与差旅：在职证明、收入证明、签证材料、出差申请、酒店机票。
+- 办公配套：访客、工位搬迁、餐厅、班车、停车、快递、收发室。
+- 人才发展：培训学习、绩效 OKR、认证考试、导师和内部课程。
 - 钉钉机器人：制度查询、待办提醒、审批入口、报障入口、使用边界。
 - IT 支持：SSO、VPN、网络、邮箱日历、电脑外设、软件安装、GPT 权限。
 - 安全合规：数据外发、权限最小化、设备丢失、离职交接和账号回收。
@@ -39,8 +42,19 @@
 | `employee-rules-handbook.md` | 公司制度查询与公告口径 | inquiry |
 | `employee-attendance-leave-overtime.md` | 考勤、请假、加班规则 | inquiry |
 | `employee-meal-subsidy-and-benefits.md` | 加班餐补、福利、补贴查询 | billing |
+| `employee-payroll-social-insurance.md` | 薪酬、工资单、社保公积金 | billing |
+| `employee-business-trip-travel.md` | 出差申请、机票酒店和差旅标准 | billing |
 | `employee-procurement-platform.md` | 办公用品和软件采购平台 | inquiry |
 | `employee-expense-reimbursement.md` | 报销、发票、付款进度 | billing |
+| `employee-proof-certificate.md` | 在职证明、收入证明和签证材料 | inquiry |
+| `employee-office-access-visitor.md` | 门禁、访客预约和临时通行 | inquiry |
+| `employee-workstation-seat-move.md` | 工位、搬迁和储物柜 | inquiry |
+| `employee-cafeteria-shuttle-parking.md` | 餐厅、班车、停车和通勤 | inquiry |
+| `employee-express-mailroom.md` | 快递、收发室和公司邮寄 | inquiry |
+| `employee-training-learning.md` | 培训、学习平台和认证考试 | inquiry |
+| `employee-performance-okr.md` | 绩效、OKR 和目标校准 | inquiry |
+| `employee-remote-work-policy.md` | 居家办公、异地办公和远程协作 | inquiry |
+| `employee-legal-contract-seal.md` | 合同评审、法务咨询和用印申请 | inquiry |
 | `employee-dingtalk-bot-guide.md` | 钉钉员工咨询机器人 | inquiry |
 | `employee-account-sso-permission.md` | 账号、SSO、权限申请 | technical |
 | `employee-email-calendar.md` | 邮箱、日历、会议邀请 | technical |
