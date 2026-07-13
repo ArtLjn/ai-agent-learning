@@ -1,7 +1,8 @@
 """A-06 系统配置查看测试。
 
 覆盖：
-- admin 角色返回 200 含 6 类配置
+- developer 角色返回 200 含 6 类配置
+- admin 服务台角色返回 403
 - user 角色 403
 - 未登录 401
 - 密钥字段不出现在响应里（脱敏）
@@ -120,20 +121,13 @@ def test_user_role_returns_403(client: TestClient, app: FastAPI) -> None:
     assert resp.status_code == 403
 
 
-def test_admin_role_returns_200(client: TestClient, app: FastAPI) -> None:
-    """admin 角色 → 200。"""
+def test_admin_role_returns_403(client: TestClient, app: FastAPI) -> None:
+    """admin 服务台角色不能查看系统运维配置。"""
     user = _register(client, "theadmin")
     _promote_to_admin(client, app, user["user_id"])
 
     resp = client.get("/api/admin/config")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert "llm" in body
-    assert "embedding" in body
-    assert "qdrant" in body
-    assert "rag_service" in body
-    assert "database" in body
-    assert "auth" in body
+    assert resp.status_code == 403
 
 
 def test_developer_role_returns_200(client: TestClient, app: FastAPI) -> None:
@@ -155,7 +149,7 @@ def test_developer_role_returns_200(client: TestClient, app: FastAPI) -> None:
 def test_config_response_has_6_categories(client: TestClient, app: FastAPI) -> None:
     """响应必须包含 6 类配置（设计依据 tasks.md 5.1）。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     body = client.get("/api/admin/config").json()
     expected_keys = {"llm", "embedding", "qdrant", "rag_service", "database", "auth"}
@@ -165,7 +159,7 @@ def test_config_response_has_6_categories(client: TestClient, app: FastAPI) -> N
 def test_llm_category_fields(client: TestClient, app: FastAPI) -> None:
     """LLM 类包含 base_url / model / api_key_configured。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     llm = client.get("/api/admin/config").json()["llm"]
     assert "base_url" in llm
@@ -179,7 +173,7 @@ def test_llm_category_fields(client: TestClient, app: FastAPI) -> None:
 def test_database_category_masks_password(client: TestClient, app: FastAPI) -> None:
     """database 类只暴露 driver/host/port/db，不返回 username/password 原值。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     db_cfg = client.get("/api/admin/config").json()["database"]
     assert "driver" in db_cfg
@@ -206,7 +200,7 @@ def test_secret_fields_not_in_response(client: TestClient, app: FastAPI) -> None
     design.md 决策 4：直接省略字段，不返回 "***"。
     """
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     text = client.get("/api/admin/config").text
     # 不应出现以下任何 key
@@ -226,7 +220,7 @@ def test_secret_fields_not_in_response(client: TestClient, app: FastAPI) -> None
 def test_url_fields_visible(client: TestClient, app: FastAPI) -> None:
     """URL 类字段（非密钥）应完整显示。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     body = client.get("/api/admin/config").json()
     # llm.base_url / qdrant.url / embedding.base_url 都应可见
@@ -243,7 +237,7 @@ def test_rag_service_api_key_only_returns_configured_flag(
     密钥全脱敏：仅返回 configured 标志，原值绝不进响应。
     """
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     rag_cfg = client.get("/api/admin/config").json()["rag_service"]
     assert "api_key_configured" in rag_cfg
@@ -255,7 +249,7 @@ def test_rag_service_api_key_only_returns_configured_flag(
 def test_rag_service_exposes_collection(client: TestClient, app: FastAPI) -> None:
     """rag_service 字段暴露当前业务 collection 名（admin 双写目标 + agent 检索目标）。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     rag_cfg = client.get("/api/admin/config").json()["rag_service"]
     assert "collection" in rag_cfg
@@ -268,7 +262,7 @@ def test_health_endpoint_reports_ops_dependencies(
 ) -> None:
     """系统健康接口聚合 rag-service、Qdrant、LLM、Embedding 四类依赖。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     body = client.get("/api/admin/config/health").json()
     components = body["components"]
@@ -282,7 +276,7 @@ def test_health_endpoint_reports_ops_dependencies(
 def test_auth_category_does_not_leak_secret(client: TestClient, app: FastAPI) -> None:
     """auth 类只暴露开关，不暴露 hash/secret 原值。"""
     user = _register(client, "theadmin")
-    _promote_to_admin(client, app, user["user_id"])
+    _promote_to_developer(client, app, user["user_id"])
 
     auth_cfg = client.get("/api/admin/config").json()["auth"]
     assert "auth_enabled" in auth_cfg

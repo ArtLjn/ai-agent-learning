@@ -1,6 +1,6 @@
-"""管理员/开发者模块：Agent 调用统计路由（D-05）。
+"""系统运维管理端：Agent 调用统计路由（D-05）。
 
-挂在 /api/admin 前缀下，要求 admin 或 developer 角色。
+挂在 /api/admin 前缀下，要求 developer 系统运维角色。
 
 GET /api/admin/stats/agents?days=7
 返回 5 个 Agent（intent/classify/process/review/coordinator）的：
@@ -138,7 +138,7 @@ async def _aggregate_tokens(
 async def get_agent_stats(
     request: Request,
     days: int = Query(default=7, ge=1, le=90),
-    _user: dict = Depends(require_role("admin", "developer")),
+    _user: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """聚合 5 个 Agent 的调用统计。
 
@@ -212,13 +212,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 # D-04 路由复用 D-05 已声明的 router（同 prefix /admin/stats），不重新声明
-# dependencies 已在 D-05 router 上挂了 require_role("admin", "developer")
+# 鉴权在各端点显式声明为 developer only。
 
 
 @router.get("/tokens")
 async def token_summary(
     request: Request,
     days: int = Query(default=7, ge=1, le=90),
+    _user: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """近 N 天 Token 用量汇总（按 model + call_type 分桶，系统级总统计）。"""
     db_manager = request.app.state.db_manager
@@ -271,6 +272,7 @@ async def token_summary(
 async def token_daily(
     request: Request,
     date_str: str | None = Query(default=None, alias="date"),
+    _user: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """指定日期的 Token 用量明细（系统级总统计，不按用户分摊）。"""
     db_manager = request.app.state.db_manager
@@ -311,6 +313,7 @@ async def token_hourly(
     request: Request,
     date_str: str | None = Query(default=None, alias="date"),
     model: str | None = Query(default=None),
+    _user: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """按小时聚合的 LLM Token 用量（系统级总统计）。
 

@@ -4,7 +4,7 @@
 - /api/admin/stats/agents 返回 5 个 Agent 聚合
 - 时间范围过滤（days=7 只返回最近 7 天的 span/token）
 - 包含 token 字段（验证 C2 token 累加生效）
-- user 角色 403，未登录 401
+- user/admin 角色 403，未登录 401
 - developer 角色放行
 """
 
@@ -165,11 +165,12 @@ def test_user_role_returns_403(client: TestClient) -> None:
     assert resp.status_code == 403
 
 
-def test_admin_role_returns_200(client: TestClient, app: FastAPI) -> None:
+def test_admin_role_returns_403(client: TestClient, app: FastAPI) -> None:
+    """服务台 admin 不能访问系统运维统计。"""
     admin = _register(client, "admin1")
     _promote(client, app, admin["user_id"], "admin")
     resp = client.get("/api/admin/stats/agents")
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 403
 
 
 def test_developer_role_returns_200(client: TestClient, app: FastAPI) -> None:
@@ -190,7 +191,7 @@ def test_agents_endpoint_returns_5_agents(
 ) -> None:
     """返回 5 个 Agent 的统计，字段齐全。"""
     admin = _register(client, "admin1")
-    _promote(client, app, admin["user_id"], "admin")
+    _promote(client, app, admin["user_id"], "developer")
 
     resp = client.get("/api/admin/stats/agents?days=7")
     assert resp.status_code == 200
@@ -215,7 +216,7 @@ def test_seeded_spans_aggregate_correctly(
 ) -> None:
     """种 3 个 classify span（2 ok 1 error）→ call_count=3, error_count=1。"""
     admin = _register(client, "admin1")
-    _promote(client, app, admin["user_id"], "admin")
+    _promote(client, app, admin["user_id"], "developer")
     db: DatabaseManager = app.state.db_manager
 
     # 用 portal 同步调用 async 方法
@@ -259,7 +260,7 @@ def test_seeded_token_daily_stats_aggregate(
 ) -> None:
     """种 token_daily_stats call_type=classify 2 行 → total_tokens 累加。"""
     admin = _register(client, "admin1")
-    _promote(client, app, admin["user_id"], "admin")
+    _promote(client, app, admin["user_id"], "developer")
     db: DatabaseManager = app.state.db_manager
 
     client.portal.call(_seed_token_rows, db)
@@ -299,7 +300,7 @@ async def _seed_token_rows(db: DatabaseManager) -> None:
 def test_days_filter_excludes_old_data(client: TestClient, app: FastAPI) -> None:
     """days=1 时 8 天前的 token 不计入。"""
     admin = _register(client, "admin1")
-    _promote(client, app, admin["user_id"], "admin")
+    _promote(client, app, admin["user_id"], "developer")
     db: DatabaseManager = app.state.db_manager
 
     client.portal.call(_seed_old_token, db)
@@ -328,7 +329,7 @@ async def _seed_old_token(db: DatabaseManager) -> None:
 def test_invalid_days_returns_422(client: TestClient, app: FastAPI) -> None:
     """days=0 / days=100 → 422。"""
     admin = _register(client, "admin1")
-    _promote(client, app, admin["user_id"], "admin")
+    _promote(client, app, admin["user_id"], "developer")
 
     resp = client.get("/api/admin/stats/agents?days=0")
     assert resp.status_code == 422

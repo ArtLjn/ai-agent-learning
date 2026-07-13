@@ -32,20 +32,21 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: '/my', icon: LayoutDashboard, label: '我的工作台', roles: ['user'] },
+  { to: '/tickets', icon: Ticket, label: '我的服务请求', roles: ['user'] },
   { to: '/dashboard', icon: LayoutDashboard, label: '服务台总览', roles: ['admin'] },
-  { to: '/tickets', icon: Ticket, label: '工单管理', roles: ['user', 'admin', 'developer'] },
-  { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'admin', 'developer'] },
+  { to: '/tickets', icon: Ticket, label: '工单受理', roles: ['admin'] },
   { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['admin'] },
   { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
-  { to: '/admin/users', icon: Users2, label: '账号治理', roles: ['admin', 'developer'] },
-  { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin', 'developer'] },
+  { to: '/admin/users', icon: Users2, label: '账号治理', roles: ['developer'] },
+  { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['developer'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer'] },
-  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['admin', 'developer'] },
-  { to: '/dev/rag-debug', icon: DatabaseZap, label: 'RAG 调试', roles: ['admin', 'developer'] },
-  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['admin', 'developer'] },
-  { to: '/dev/traces', icon: GitBranch, label: '流程监控', roles: ['admin', 'developer'] },
-  { to: '/dev/tokens', icon: DollarSign, label: 'Token 用量', roles: ['admin', 'developer'] },
-  { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin', 'developer'] },
+  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['developer'] },
+  { to: '/dev/rag-debug', icon: DatabaseZap, label: 'RAG 调试', roles: ['developer'] },
+  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['developer'] },
+  { to: '/dev/traces', icon: GitBranch, label: '流程监控', roles: ['developer'] },
+  { to: '/dev/tokens', icon: DollarSign, label: 'Token 用量', roles: ['developer'] },
+  { to: '/settings', icon: Settings, label: '系统配置', roles: ['developer'] },
+  { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'admin', 'developer'] },
 ]
 
 export function Sidebar() {
@@ -69,9 +70,9 @@ export function Sidebar() {
     }
   }, [])
 
-  // 演示模式视为 admin，可见全部菜单
+  // 演示模式沿用服务台视角，真实权限仍以后端路由守卫为准。
   const role: Role = (auth?.role as Role) || (auth && !auth.auth_enabled ? 'admin' : 'user')
-  const visible = auth ? navItems.filter((item) => item.roles.includes(role)) : navItems
+  const visible = auth ? navItems.filter((item) => item.roles.includes(role)) : []
 
   async function handleLogout() {
     if (loggingOut) return

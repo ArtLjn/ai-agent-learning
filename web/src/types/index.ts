@@ -261,6 +261,8 @@ export interface KnowledgeDocument {
   collection: string
   source: string
   category: string
+  preview?: string
+  content?: string
   status?: KnowledgeStatus | string
   version?: number
   chunk_count: number

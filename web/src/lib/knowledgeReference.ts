@@ -25,7 +25,13 @@ export function filterKnowledgeDocuments(
 
     const source = normalizeText(doc.source)
     const docCategory = normalizeText(doc.category)
-    const haystack = normalizeText([doc.source, doc.category].filter(Boolean).join(' '))
+    const haystack = normalizeText([
+      doc.title,
+      doc.source,
+      doc.category,
+      doc.preview,
+      doc.content,
+    ].filter(Boolean).join(' '))
 
     if (keyword && haystack.includes(keyword)) return true
     if (keyword && source && keyword.includes(source)) return true
@@ -53,6 +59,6 @@ function tokenize(value: string): string[] {
     .filter((item) => item.length >= 2)
 }
 
-function normalizeText(value: string): string {
-  return value.trim().toLowerCase()
+function normalizeText(value: string | null | undefined): string {
+  return (value ?? '').trim().toLowerCase()
 }

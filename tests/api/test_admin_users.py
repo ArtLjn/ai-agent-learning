@@ -60,8 +60,8 @@ def _register(client: TestClient, username: str = "alice") -> dict[str, Any]:
     """注册用户并保留 session。
 
     注意：每次 register 都会覆盖 session（自动登录新用户）。
-    测试中需要 admin 视角时，应先 register 所有非 admin 用户，最后再
-    register admin 并 _promote_to_admin，避免后续 register 覆盖 session。
+    测试中需要 developer 视角时，应先 register 所有非运维用户，最后再
+    register developer 并 _promote_to_developer，避免后续 register 覆盖 session。
     """
     resp = client.post(
         "/api/auth/register",
@@ -76,7 +76,7 @@ def _register(client: TestClient, username: str = "alice") -> dict[str, Any]:
 
 
 def _relogin(client: TestClient, username: str) -> None:
-    """重新登录指定用户（admin 后台改 role 后必用）。"""
+    """重新登录指定用户（运维后台改 role 后必用）。"""
     client.post("/api/auth/logout")
     resp = client.post(
         "/api/auth/login",
@@ -85,12 +85,12 @@ def _relogin(client: TestClient, username: str) -> None:
     assert resp.status_code == 200, f"重新登录失败: {resp.text}"
 
 
-def _promote_to_admin(client: TestClient, app: FastAPI, user_id: str) -> None:
-    """DB 层面把 user_id 升为 admin，然后重新 login 让 session 拿到新 role。"""
+def _promote_to_developer(client: TestClient, app: FastAPI, user_id: str) -> None:
+    """DB 层面把 user_id 升为 developer，然后重新 login 让 session 拿到新 role。"""
     updated = client.portal.call(
-        app.state.db_manager.update_user_role, user_id, "admin"
+        app.state.db_manager.update_user_role, user_id, "developer"
     )
-    assert updated is not None and updated["role"] == "admin"
+    assert updated is not None and updated["role"] == "developer"
     username = updated["username"]
     client.post("/api/auth/logout")
     resp = client.post(
@@ -105,7 +105,7 @@ def _logout(client: TestClient) -> None:
 
 
 # ============================================================
-# 鉴权：未登录 401，user 角色 403，admin 才放行
+# 鉴权：未登录 401，user/admin 角色 403，developer 才放行
 # ============================================================
 
 
@@ -124,18 +124,16 @@ def test_list_users_user_role_returns_403(
     assert resp.status_code == 403
 
 
-def test_list_users_admin_role_returns_200(
+def test_list_users_admin_role_returns_403(
     client: TestClient, app: FastAPI
 ) -> None:
-    """admin 角色可以列用户。"""
-    user = _register(client, "admin1")
-    _promote_to_admin(client, app, user["user_id"])
+    """服务台 admin 不能进入账号治理接口。"""
+    user = _register(client, "serviceadmin")
+    client.portal.call(app.state.db_manager.update_user_role, user["user_id"], "admin")
+    _relogin(client, "serviceadmin")
 
     resp = client.get("/api/admin/users")
-    assert resp.status_code == 200, resp.text
-    body = resp.json()
-    assert body["total"] >= 1
-    assert any(item["user_id"] == user["user_id"] for item in body["items"])
+    assert resp.status_code == 403
 
 
 def test_list_users_developer_role_returns_200(
@@ -143,8 +141,7 @@ def test_list_users_developer_role_returns_200(
 ) -> None:
     """系统运维人员（developer）可以进入账号治理接口。"""
     user = _register(client, "opsuser")
-    client.portal.call(app.state.db_manager.update_user_role, user["user_id"], "developer")
-    _relogin(client, "opsuser")
+    _promote_to_developer(client, app, user["user_id"])
 
     resp = client.get("/api/admin/users")
     assert resp.status_code == 200, resp.text
@@ -167,7 +164,7 @@ def test_list_users_filters_by_role(client: TestClient, app: FastAPI) -> None:
     )
     # 最后注册 admin 并 promote（避免覆盖 session）
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.get("/api/admin/users", params={"role": "developer"})
     assert resp.status_code == 200, resp.text
@@ -184,7 +181,7 @@ def test_list_users_keyword_search(client: TestClient, app: FastAPI) -> None:
     _register(client, "alex")
     # 最后注册 admin
     admin = _register(client, "rootadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.get("/api/admin/users", params={"keyword": "al"})
     assert resp.status_code == 200, resp.text
@@ -200,9 +197,9 @@ def test_list_users_keyword_search(client: TestClient, app: FastAPI) -> None:
 
 
 def test_patch_role_to_developer(client: TestClient, app: FastAPI) -> None:
-    """admin 把 user 升为 developer。"""
+    """系统运维人员把 user 升为 developer。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     target = _register(client, "tobedev")
     _logout(client)
     client.post(
@@ -225,7 +222,7 @@ def test_patch_role_to_developer(client: TestClient, app: FastAPI) -> None:
 def test_patch_role_to_admin(client: TestClient, app: FastAPI) -> None:
     """admin 把 user 升为 admin。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     target = _register(client, "tobeadmin")
     _logout(client)
     client.post(
@@ -244,7 +241,7 @@ def test_patch_role_to_admin(client: TestClient, app: FastAPI) -> None:
 def test_patch_status_ban_then_unban(client: TestClient, app: FastAPI) -> None:
     """封禁 + 解封用户。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     target = _register(client, "toban")
     _logout(client)
     client.post(
@@ -292,7 +289,7 @@ def test_banned_logged_in_account_cannot_access_protected_api(
 def test_cannot_modify_self_role(client: TestClient, app: FastAPI) -> None:
     """admin 不能改自己的 role（防降权 / 误操作）。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.patch(
         f"/api/admin/users/{admin['user_id']}",
@@ -308,7 +305,7 @@ def test_patch_invalid_role_returns_422(
     """传 reviewer（已删除）或其他非法 role → 422。"""
     target = _register(client, "totarget")
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.patch(
         f"/api/admin/users/{target['user_id']}",
@@ -324,7 +321,7 @@ def test_patch_empty_body_returns_422(
     """空 body（role 和 status 都没传）→ 422。"""
     target = _register(client, "totarget")
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.patch(
         f"/api/admin/users/{target['user_id']}", json={}
@@ -337,7 +334,7 @@ def test_patch_nonexistent_user_returns_404(
     client: TestClient, app: FastAPI
 ) -> None:
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.patch(
         "/api/admin/users/U-nonexistent-xxx",

@@ -1,9 +1,9 @@
-"""用户隔离测试：user 角色只能看自己的工单；admin/developer 看全部。
+"""用户隔离测试：user 角色只能看自己的工单；admin 可看服务台工单，developer 不进业务工单。
 
 覆盖：
 - POST /tickets：session user_id 自动注入（防伪造 body.user_id）
-- GET /tickets：user 角色按 session.user_id 过滤；admin/developer 看全部
-- GET /tickets/{id}：user 看他人 403；admin/developer 放行
+- GET /tickets：user 角色按 session.user_id 过滤；admin 看全部；developer 403
+- GET /tickets/{id}：user 看他人 403；admin 放行；developer 403
 - GET /tickets/{id}/messages：user 看他人 403
 - POST /tickets/{id}/messages：user 给他人补充 403
 - POST /tickets/{id}/feedback：user 给他人反馈 403
@@ -250,10 +250,10 @@ class TestListTicketsIsolation:
         assert "TK-alice-1" in ticket_ids
         assert "TK-bob-1" in ticket_ids
 
-    def test_developer_sees_all_tickets(
+    def test_developer_cannot_list_business_tickets(
         self, client: TestClient, app: FastAPI
     ) -> None:
-        """developer 角色：列表返回所有工单（调试需要）。"""
+        """developer 角色属于系统运维端，不开放业务工单列表入口。"""
         alice = _register(client, "alice")
         _logout_then_register_other(client, "bob")
         bob = client.portal.call(
@@ -264,11 +264,7 @@ class TestListTicketsIsolation:
         _promote(client, app, alice["user_id"], "developer")
 
         resp = client.get("/api/tickets")
-        assert resp.status_code == 200
-        items = resp.json()
-        ticket_ids = [t["ticket_id"] for t in items]
-        assert "TK-alice-1" in ticket_ids
-        assert "TK-bob-1" in ticket_ids
+        assert resp.status_code == 403
 
 
 class TestTicketDetailIsolation:
@@ -311,7 +307,7 @@ class TestTicketDetailIsolation:
         resp = client.get("/api/tickets/TK-bob-1")
         assert resp.status_code == 200
 
-    def test_developer_views_other_user_ticket_200(
+    def test_developer_views_other_user_ticket_403(
         self, client: TestClient, app: FastAPI
     ) -> None:
         alice = _register(client, "alice")
@@ -323,7 +319,7 @@ class TestTicketDetailIsolation:
         _promote(client, app, alice["user_id"], "developer")
 
         resp = client.get("/api/tickets/TK-bob-1")
-        assert resp.status_code == 200
+        assert resp.status_code == 403
 
     def test_user_detail_sanitizes_internal_processing_result(
         self, client: TestClient, app: FastAPI
@@ -464,7 +460,7 @@ class TestMessagesAndFeedbackIsolation:
     def test_developer_cannot_submit_feedback_for_user_ticket(
         self, client: TestClient, app: FastAPI
     ) -> None:
-        """developer 可调试工单，但不能代替用户提交满意度反馈。"""
+        """developer 不开放员工反馈接口。"""
         alice = _register(client, "alice")
         _logout_then_register_other(client, "bob")
         bob = client.portal.call(

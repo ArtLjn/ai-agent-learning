@@ -349,7 +349,11 @@ def _fallback_mock_question(
 
 
 @router.post("/tickets", response_model=dict)
-async def create_ticket(body: TicketCreate, request: Request) -> dict:
+async def create_ticket(
+    body: TicketCreate,
+    request: Request,
+    _role_check: dict = Depends(require_role("user")),
+) -> dict:
     """提交新工单，由 Agent 理解用户意图后触发工作流。"""
     intent_agent = getattr(request.app.state, "ticket_intent_agent", None)
     if intent_agent is None:
@@ -404,7 +408,11 @@ async def create_ticket(body: TicketCreate, request: Request) -> dict:
 
 
 @router.post("/tickets/batch", response_model=dict)
-async def create_batch_tickets(body: BatchTicketCreate, request: Request) -> dict:
+async def create_batch_tickets(
+    body: BatchTicketCreate,
+    request: Request,
+    _role_check: dict = Depends(require_role("user")),
+) -> dict:
     """批量提交工单，使用 asyncio.gather 并发执行。
 
     每个工单独立初始化状态，通过 concurrent_execute 并发触发工作流，
@@ -468,6 +476,7 @@ async def generate_mock_ticket_question(
         default=None,
         description="指定 mock 问题生成类型",
     ),
+    _role_check: dict = Depends(require_role("user")),
 ) -> dict:
     """基于知识库随机片段生成一条自然用户口吻的 mock 工单问题。"""
     knowledge_tool = getattr(request.app.state, "knowledge_tool", None)
@@ -510,7 +519,11 @@ async def generate_mock_ticket_question(
 
 
 @router.get("/tickets/{ticket_id}", response_model=TicketResponse)
-async def get_ticket(ticket_id: str, request: Request) -> TicketResponse:
+async def get_ticket(
+    ticket_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("user", "admin")),
+) -> TicketResponse:
     """根据 ticket_id 查询工单详情。"""
     db_tool = request.app.state.db_tool
     ticket = await db_tool.get_ticket(ticket_id)
@@ -529,7 +542,11 @@ async def get_ticket(ticket_id: str, request: Request) -> TicketResponse:
 
 
 @router.get("/tickets/{ticket_id}/messages", response_model=list[dict])
-async def list_ticket_messages(ticket_id: str, request: Request) -> list[dict]:
+async def list_ticket_messages(
+    ticket_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("user", "admin")),
+) -> list[dict]:
     """获取工单沟通记录。"""
     ticket = await request.app.state.db_manager.get_ticket(ticket_id)
     if ticket is None:
@@ -545,6 +562,7 @@ async def create_user_ticket_message(
     ticket_id: str,
     body: TicketMessageCreate,
     request: Request,
+    _role_check: dict = Depends(require_role("user")),
 ) -> dict:
     """用户补充工单信息，并恢复后续处理。"""
     ticket = await request.app.state.db_manager.get_ticket(ticket_id)
@@ -610,6 +628,7 @@ async def list_tickets(
     category: str | None = Query(default=None, description="按分类过滤"),
     limit: int = Query(default=20, ge=1, le=100, description="返回数量"),
     offset: int = Query(default=0, ge=0, description="偏移量"),
+    _role_check: dict = Depends(require_role("user", "admin")),
 ) -> list[TicketResponse]:
     """工单列表查询，支持状态和分类过滤以及分页。
 
@@ -1124,7 +1143,7 @@ async def run_knowledge_evaluation(
 @router.get("/settings", response_model=dict)
 async def get_system_settings(
     request: Request,
-    _role_check: dict = Depends(require_role("admin")),
+    _role_check: dict = Depends(require_role("developer")),
 ) -> dict:
     """获取前端设置页展示用的只读配置摘要。"""
     settings = request.app.state.settings
@@ -1163,6 +1182,7 @@ async def submit_feedback(
     ticket_id: str,
     body: dict[str, Any],
     request: Request,
+    _role_check: dict = Depends(require_role("user")),
 ) -> dict:
     """提交用户对工单处理结果的满意度反馈。
 
@@ -1508,7 +1528,10 @@ async def submit_review_decision(
 
 
 @router.get("/analytics", response_model=dict)
-async def get_analytics(request: Request) -> dict:
+async def get_analytics(
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
     """获取统计面板数据：分类分布 + 优先级分布 + 处理统计 + 评估指标。"""
     from src.multi_agent_system.core.evaluation import EvaluationCollector
 
@@ -1564,7 +1587,11 @@ async def get_analytics(request: Request) -> dict:
 
 
 @router.get("/tickets/{ticket_id}/trace")
-async def get_ticket_trace(ticket_id: str, request: Request) -> dict:
+async def get_ticket_trace(
+    ticket_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("developer")),
+) -> dict:
     """获取工单的完整执行 trace。"""
     db_manager = request.app.state.db_manager
     trace = await db_manager.get_trace_by_ticket(ticket_id)
@@ -1603,6 +1630,7 @@ async def list_traces(
     status: str | None = None,
     limit: int = 20,
     offset: int = 0,
+    _role_check: dict = Depends(require_role("developer")),
 ) -> dict:
     """查询 trace 列表。"""
     limit = min(limit, 100)
@@ -1619,7 +1647,11 @@ async def list_traces(
 
 
 @router.get("/traces/{trace_id}/stats")
-async def get_trace_stats(trace_id: str, request: Request) -> dict:
+async def get_trace_stats(
+    trace_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("developer")),
+) -> dict:
     """获取 trace 耗时分析。"""
     db_manager = request.app.state.db_manager
     stats = await db_manager.get_trace_stats(trace_id)
@@ -1630,7 +1662,11 @@ async def get_trace_stats(trace_id: str, request: Request) -> dict:
 
 
 @router.get("/traces/{trace_id}/decisions")
-async def get_trace_decisions(trace_id: str, request: Request) -> dict:
+async def get_trace_decisions(
+    trace_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("developer")),
+) -> dict:
     """列出 trace 内的所有决策点（从 spans.metadata.decision 提取）。"""
     db_manager = request.app.state.db_manager
     spans = await db_manager.get_spans_by_trace(trace_id)

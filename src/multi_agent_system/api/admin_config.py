@@ -1,6 +1,6 @@
 """A-06 系统配置查看（只读脱敏）。
 
-挂在 /api/admin 前缀下，允许 admin / developer 查看。
+挂在 /api/admin 前缀下，允许 developer 系统运维角色查看。
 
 设计要点：
 - 严格只读：不提供任何修改接口（毕设范围）
@@ -107,7 +107,7 @@ async def _build_rag_service_view(settings: Any) -> dict[str, Any]:
 @router.get("")
 async def get_system_config(
     request: Request,
-    _role: dict = Depends(require_role("admin", "developer")),
+    _role: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """返回 6 类配置摘要（只读，密钥字段省略）。
 
@@ -182,7 +182,7 @@ def _component(
 @router.get("/health")
 async def get_ops_health(
     request: Request,
-    _role: dict = Depends(require_role("admin", "developer")),
+    _role: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """系统运维健康视图：聚合 rag-service、Qdrant、LLM、Embedding 状态。
 

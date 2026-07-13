@@ -89,9 +89,9 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
     """用户名 + 密码登录，成功后写入 session。
 
     登录路径：
-    1. Settings.auth_username 兜底管理员（视为 admin 角色）
+    1. Settings.auth_username 兜底账号（视为 developer 系统运维角色）
     2. DB-backed 注册用户（按 username 查 → verify_password → 读 DB role）
-       admin 在后台改 role 后，被改用户重新 login 即拿到新 role。
+       运维人员在账号治理中改 role 后，被改用户重新 login 即拿到新 role。
 
     错误：用户名或密码错误返回 401；账户被封禁（status=banned）返回 403。
     """
@@ -104,7 +104,7 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
     ):
         request.session["user"] = {
             "username": body.username,
-            "role": "admin",
+            "role": "developer",
         }
         return LoginResponse(username=body.username)
 
@@ -202,7 +202,7 @@ async def me(request: Request) -> dict[str, Any]:
     user = get_current_user(request)
     settings = Settings()
     if user:
-        # 演示模式视为 admin（兜底放行所有路由）
+        # 演示模式视为服务台角色展示；路由守卫会在 auth_disabled 时放行。
         role = user.get("role") or ("admin" if not settings.auth_enabled else "user")
         return {
             "logged_in": True,

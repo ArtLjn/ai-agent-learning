@@ -16,7 +16,7 @@ __all__ = ["router"]
 router = APIRouter(
     prefix="/admin/rag",
     tags=["admin-rag"],
-    dependencies=[Depends(require_role("admin", "developer"))],
+    dependencies=[Depends(require_role("developer"))],
 )
 
 

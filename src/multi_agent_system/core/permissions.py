@@ -15,20 +15,19 @@ from src.multi_agent_system.config import Settings
 __all__ = ["require_role", "ROLE_PERMISSIONS", "get_role_routes"]
 
 
-# 角色到可见前端路由的映射（前端 Sidebar 与 RequireRole 共用）
-# v2.0 设计 3 角色：user / admin / developer（详见 docs/design-spec/
-# assets/system-module-architecture-v2-ascii.md）
+# 角色到可见前端路由的映射（前端 Sidebar 与 RequireRole 共用）。
+# v2.2 三类登录角色：
+# - user：员工服务端
+# - admin：服务台处理端
+# - developer：系统运维管理端
 ROLE_PERMISSIONS: dict[str, list[str]] = {
     "user": ["/", "/my", "/tickets", "/tickets/:id", "/profile"],
     "admin": [
         "/", "/dashboard", "/tickets", "/tickets/:id", "/profile",
-        "/reviews", "/knowledge", "/settings",
-        "/admin/users", "/admin/audit-logs",
-        "/dev/prompts", "/dev/rag-debug", "/dev/agent-stats",
-        "/dev/traces", "/dev/tokens",
+        "/reviews", "/knowledge",
     ],
     "developer": [
-        "/", "/tickets", "/tickets/:id", "/profile",
+        "/", "/profile",
         "/monitor", "/settings",
         "/admin/users", "/admin/audit-logs",
         "/dev/prompts", "/dev/rag-debug", "/dev/agent-stats",
@@ -52,7 +51,7 @@ def _resolve_role(session_user: dict[str, Any], auth_enabled: bool) -> str:
     role = session_user.get("role")
     if role in _VALID_ROLES:
         return role
-    # 演示模式视为 admin，全部放行
+    # 演示模式视为服务台角色；require_role 会在演示模式提前放行。
     if not auth_enabled:
         return "admin"
     return "user"
@@ -66,7 +65,7 @@ def require_role(*allowed_roles: str):
         或
         @router.get("/...", dependencies=[Depends(require_role("admin"))])
 
-    演示模式（auth_enabled=false）下视为 admin，永远放行。
+    演示模式（auth_enabled=false）下永远放行。
     """
     if not allowed_roles:
         raise ValueError("require_role 至少传一个角色")
@@ -80,12 +79,12 @@ def require_role(*allowed_roles: str):
         session_user = get_current_user(request)
         settings = Settings()
 
-        # 演示模式：视为 admin 放行
+        # 演示模式：不做角色拦截，使用当前端点允许角色中的第一个作为展示值。
         if not settings.auth_enabled:
             return {
                 "username": "anonymous",
                 "auth_disabled": True,
-                "role": "admin",
+                "role": allowed_roles[0],
             }
 
         if not session_user:

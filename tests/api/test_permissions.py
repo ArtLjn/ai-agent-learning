@@ -11,7 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.multi_agent_system.api.auth_routes import router as auth_router
 from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.api.routes import router as biz_router
-from src.multi_agent_system.core.auth import require_login
+from src.multi_agent_system.core.auth import hash_password, require_login
 from src.multi_agent_system.core.database import DatabaseManager
 from src.multi_agent_system.core.permissions import get_role_routes, require_role
 from tests.conftest import TEST_DATABASE_URL
@@ -154,8 +154,8 @@ def test_require_role_requires_at_least_one_role() -> None:
         require_role()
 
 
-def test_role_route_permissions_match_v2_boundary() -> None:
-    """v2.0 前端可见路由边界：业务运营与技术工作台分离。"""
+def test_role_route_permissions_match_v22_boundary() -> None:
+    """v2.2 前端可见路由边界：员工、服务台、系统运维三端分离。"""
     admin_routes = set(get_role_routes("admin"))
     developer_routes = set(get_role_routes("developer"))
     user_routes = set(get_role_routes("user"))
@@ -166,12 +166,20 @@ def test_role_route_permissions_match_v2_boundary() -> None:
     assert "/my" in user_routes
     assert "/my" not in admin_routes
     assert "/my" not in developer_routes
-    assert "/settings" in admin_routes
+    assert "/settings" not in admin_routes
     assert "/settings" in developer_routes
     assert "/monitor" not in admin_routes
     assert "/monitor" in developer_routes
     assert "/reviews" in admin_routes
     assert "/reviews" not in developer_routes
+    assert "/knowledge" in admin_routes
+    assert "/knowledge" not in developer_routes
+    assert "/tickets" in admin_routes
+    assert "/tickets" not in developer_routes
+    assert "/admin/users" not in admin_routes
+    assert "/admin/users" in developer_routes
+    assert "/dev/prompts" not in admin_routes
+    assert "/dev/prompts" in developer_routes
 
 
 # ============================================================
@@ -191,6 +199,31 @@ def test_demo_mode_treats_user_as_admin(
 
     resp = client.get("/api/settings")
     assert resp.status_code == 200
+
+
+def test_config_fallback_admin_username_logs_in_as_developer(
+    client: TestClient, monkeypatch
+) -> None:
+    """配置兜底用户名可为 admin，但登录后角色必须是系统运维 developer。"""
+    monkeypatch.setenv("AUTH_USERNAME", "admin")
+    monkeypatch.setenv("AUTH_PASSWORD_HASH", hash_password("secret123"))
+
+    login_resp = client.post(
+        "/api/auth/login",
+        json={"username": "admin", "password": "secret123"},
+    )
+    assert login_resp.status_code == 200, login_resp.text
+
+    me_resp = client.get("/api/auth/me")
+    assert me_resp.status_code == 200
+    assert me_resp.json()["role"] == "developer"
+
+    permissions_resp = client.get("/api/users/me/permissions")
+    assert permissions_resp.status_code == 200
+    body = permissions_resp.json()
+    assert body["role"] == "developer"
+    assert "/admin/users" in body["routes"]
+    assert "/tickets" not in body["routes"]
 
 
 # ============================================================

@@ -1,6 +1,6 @@
 """A-07 操作日志审计查询接口。
 
-挂在 /api/admin 前缀下，要求 admin 或 developer 角色。
+挂在 /api/admin 前缀下，要求 developer 系统运维角色。
 
 设计：
 - 只读查询接口，支持分页 + 多维度筛选
@@ -47,7 +47,7 @@ async def list_audit_logs(
     target_type: str | None = Query(default=None),
     start_date: str | None = Query(default=None),
     end_date: str | None = Query(default=None),
-    _ops: dict = Depends(require_role("admin", "developer")),
+    _ops: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """管理员查看操作日志（分页 + 多维筛选）。
 

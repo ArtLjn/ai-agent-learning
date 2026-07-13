@@ -1,6 +1,6 @@
 """D-01 Trace 决策树 Admin API。
 
-挂在 /api/admin 前缀，整组 require_role("admin", "developer")。
+挂在 /api/admin 前缀，整组 require_role("developer")。
 
 数据源：现有 traces + spans 表（C2 已落 metadata.decision 五元组）。
 本路由只读：
@@ -22,7 +22,7 @@ __all__ = ["router"]
 router = APIRouter(
     prefix="/admin/traces",
     tags=["admin-trace"],
-    dependencies=[Depends(require_role("admin", "developer"))],
+    dependencies=[Depends(require_role("developer"))],
 )
 
 

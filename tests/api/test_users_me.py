@@ -251,9 +251,9 @@ def test_get_me_permissions_returns_user_routes(client: TestClient) -> None:
 def test_get_me_permissions_after_role_change(
     client: TestClient, app: FastAPI
 ) -> None:
-    """admin 在 DB 改 role 后，老 session 调 /permissions 应反映最新角色。"""
+    """DB 改 role 后，老 session 调 /permissions 应反映最新角色。"""
     user = _register_and_keep_session(client)
-    # DB 改 role=admin（v2.0 设计 3 角色：user/admin/developer）
+    # DB 改 role=admin（服务台处理端）
     client.portal.call(
         app.state.db_manager.update_user_role, user["user_id"], "admin"
     )
@@ -263,3 +263,26 @@ def test_get_me_permissions_after_role_change(
     body = resp.json()
     assert body["role"] == "admin"
     assert "/reviews" in body["routes"]
+    assert "/knowledge" in body["routes"]
+    assert "/settings" not in body["routes"]
+    assert "/admin/users" not in body["routes"]
+
+
+def test_get_me_permissions_after_role_change_to_developer(
+    client: TestClient, app: FastAPI
+) -> None:
+    """DB 改 role=developer 后返回系统运维管理端路由。"""
+    user = _register_and_keep_session(client)
+    client.portal.call(
+        app.state.db_manager.update_user_role, user["user_id"], "developer"
+    )
+
+    resp = client.get("/api/users/me/permissions")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["role"] == "developer"
+    assert "/admin/users" in body["routes"]
+    assert "/settings" in body["routes"]
+    assert "/dev/prompts" in body["routes"]
+    assert "/tickets" not in body["routes"]
+    assert "/reviews" not in body["routes"]

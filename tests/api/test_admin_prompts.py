@@ -84,6 +84,14 @@ def _relogin(client: TestClient, username: str) -> None:
     assert resp.status_code == 200
 
 
+def _promote_to_developer(client: TestClient, app: FastAPI, user_id: str) -> None:
+    updated = client.portal.call(
+        app.state.db_manager.update_user_role, user_id, "developer"
+    )
+    assert updated is not None and updated["role"] == "developer"
+    _relogin(client, updated["username"])
+
+
 def _promote_to_admin(client: TestClient, app: FastAPI, user_id: str) -> None:
     updated = client.portal.call(app.state.db_manager.update_user_role, user_id, "admin")
     assert updated is not None and updated["role"] == "admin"
@@ -111,16 +119,22 @@ def test_list_user_role_returns_403(client: TestClient) -> None:
     assert resp.status_code == 403
 
 
+def test_list_admin_role_returns_403(
+    client: TestClient, app: FastAPI
+) -> None:
+    """服务台 admin 不能进入 Prompt 策略调试接口。"""
+    admin = _register(client, "serviceadmin")
+    _promote_to_admin(client, app, admin["user_id"])
+    resp = client.get("/api/admin/prompts/classify/versions")
+    assert resp.status_code == 403
+
+
 def test_list_developer_role_returns_200(
     client: TestClient, app: FastAPI
 ) -> None:
-    """developer 角色可以列 Prompt 版本（与 admin 等价）。"""
+    """developer 角色可以列 Prompt 版本（系统运维端）。"""
     dev = _register(client, "dev1")
-    _promote_to_admin(client, app, dev["user_id"])  # 先升 admin
-    # 再降为 developer
-    client.portal.call(app.state.db_manager.update_user_role, dev["user_id"], "developer")
-    _relogin(client, "dev1")
-
+    _promote_to_developer(client, app, dev["user_id"])
     resp = client.get("/api/admin/prompts/classify/versions")
     assert resp.status_code == 200, resp.text
 
@@ -130,9 +144,7 @@ def test_create_developer_role_returns_201(
 ) -> None:
     """developer 角色可以新建 Prompt 版本。"""
     dev = _register(client, "dev2")
-    _promote_to_admin(client, app, dev["user_id"])
-    client.portal.call(app.state.db_manager.update_user_role, dev["user_id"], "developer")
-    _relogin(client, "dev2")
+    _promote_to_developer(client, app, dev["user_id"])
 
     resp = client.post(
         "/api/admin/prompts/classify/versions",
@@ -145,7 +157,7 @@ def test_create_developer_role_returns_201(
 def test_invalid_agent_name_returns_422(client: TestClient, app: FastAPI) -> None:
     """agent_name 不在 5 个白名单 → 422。"""
     admin = _register(client, "admin1")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     resp = client.get("/api/admin/prompts/unknown_agent/versions")
     assert resp.status_code == 422
     body = resp.json()
@@ -163,7 +175,7 @@ def test_invalid_agent_name_returns_422(client: TestClient, app: FastAPI) -> Non
 def test_create_list_activate_cycle(client: TestClient, app: FastAPI) -> None:
     """admin: create v1 → list 显示 1 条 → 创建 v2 自动 active → v1 is_active=false。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # 创建 v1（activate=true）
     resp = client.post(
@@ -205,7 +217,7 @@ def test_activate_old_version_disables_current(
 ) -> None:
     """激活旧版本：当前 active 失活，目标版本激活。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # 创建 v1 v2 v3
     for i in range(1, 4):
@@ -239,7 +251,7 @@ def test_rollback_activates_previous_version(
 ) -> None:
     """回滚接口应激活当前 active 之前的最近版本。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     for i in range(1, 4):
         client.post(
@@ -262,7 +274,7 @@ def test_rollback_without_previous_version_returns_409(
 ) -> None:
     """只有一个版本时不能回滚。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     client.post(
         "/api/admin/prompts/review/versions",
         json={"template": "review v1"},
@@ -277,7 +289,7 @@ def test_activate_nonexistent_returns_404(
 ) -> None:
     """激活不存在的版本 → 404。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.post("/api/admin/prompts/classify/versions/999/activate")
     assert resp.status_code == 404
@@ -288,7 +300,7 @@ def test_create_without_activate_keeps_current(
 ) -> None:
     """activate=false 不切换 active。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     client.post(
         "/api/admin/prompts/intent/versions",
@@ -317,7 +329,7 @@ def test_diff_returns_unified_diff_string(
 ) -> None:
     """diff 接口返回 unified diff 字符串。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     client.post(
         "/api/admin/prompts/process/versions",
@@ -342,7 +354,7 @@ def test_diff_identical_versions_empty(
 ) -> None:
     """相同内容 → has_diff=False。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     client.post(
         "/api/admin/prompts/process/versions",
@@ -363,7 +375,7 @@ def test_diff_missing_version_returns_404(
 ) -> None:
     """diff 不存在的版本 → 404。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     client.post(
         "/api/admin/prompts/classify/versions",
@@ -384,7 +396,7 @@ async def test_db_create_prompt_version_assigns_sequential_version(
 ) -> None:
     """DB 层：连续创建 3 个版本，version 自增 1/2/3。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     db: DatabaseManager = app.state.db_manager
     v1 = await db.create_prompt_version("classify", "t1")
@@ -430,7 +442,7 @@ def test_reload_injects_active_prompt_into_agents(
 ) -> None:
     """新建 v2 + activate → POST /reload → 5 个 stub agent.override 都被刷新。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     stubs = _attach_stub_agents(app)
 
     # 给 classify 和 review 各建一个版本（自动 activate）
@@ -464,7 +476,7 @@ def test_reload_picks_up_newly_activated_version(
 ) -> None:
     """激活 v2 后 reload → agent.override 切换到 v2 template。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     stubs = _attach_stub_agents(app)
 
     # 建 v1（active）
@@ -495,7 +507,7 @@ def test_reload_clears_override_when_no_active(
 ) -> None:
     """active 被全部清掉后 reload → agent.override 还原为 None（代码默认）。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
     stubs = _attach_stub_agents(app)
 
     # 建 v1（active）→ reload 注入
@@ -548,7 +560,7 @@ def test_reload_developer_role_returns_200(
 ) -> None:
     """developer 也能 reload。"""
     dev = _register(client, "dev1")
-    _promote_to_admin(client, app, dev["user_id"])
+    _promote_to_developer(client, app, dev["user_id"])
     client.portal.call(app.state.db_manager.update_user_role, dev["user_id"], "developer")
     _relogin(client, "dev1")
 

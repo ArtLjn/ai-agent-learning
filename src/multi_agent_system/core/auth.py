@@ -38,13 +38,13 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def is_authenticated(request: HTTPConnection) -> bool:
     """检查当前 session 是否已登录。"""
-    user = request.session.get("user") if hasattr(request, "session") else None
+    user = request.session.get("user") if "session" in request.scope else None
     return bool(user)
 
 
 def get_current_user(request: HTTPConnection) -> dict[str, Any] | None:
     """获取当前登录用户信息，未登录返回 None。"""
-    if not hasattr(request, "session"):
+    if "session" not in request.scope:
         return None
     user = request.session.get("user")
     return user if isinstance(user, dict) else None
@@ -94,7 +94,7 @@ async def _ensure_session_user_active(
         return
     db_user = await db_manager.get_user(user_id)
     if db_user is None or db_user.get("status") == "banned":
-        if hasattr(request, "session"):
+        if "session" in request.scope:
             request.session.clear()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

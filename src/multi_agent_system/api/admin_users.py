@@ -1,6 +1,6 @@
 """管理员模块：用户管理路由（A-04）。
 
-挂在 /api/admin 前缀下，要求 admin 或 developer 角色。
+挂在 /api/admin 前缀下，要求 developer 系统运维角色。
 支持：
 - GET /api/admin/users: 分页 + 筛选（status / role / keyword）查用户列表
 - PATCH /api/admin/users/{user_id}: 改 role 或 status
@@ -51,7 +51,7 @@ async def list_users(
     status_filter: str | None = Query(default=None, alias="status"),
     role_filter: str | None = Query(default=None, alias="role"),
     keyword: str | None = Query(default=None),
-    _ops: dict = Depends(require_role("admin", "developer")),
+    _ops: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """管理员查看用户列表（分页 + 筛选）。
 
@@ -96,7 +96,7 @@ async def update_user(
     body: UpdateUserRequest,
     request: Request,
     session_user: dict[str, Any] = Depends(require_login),
-    _ops: dict = Depends(require_role("admin", "developer")),
+    _ops: dict = Depends(require_role("developer")),
 ) -> dict[str, Any]:
     """管理员修改指定用户的 role 或 status。
 

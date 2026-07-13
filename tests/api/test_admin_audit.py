@@ -100,9 +100,11 @@ def _relogin(client: TestClient, username: str) -> None:
     assert resp.status_code == 200
 
 
-def _promote_to_admin(client: TestClient, app: FastAPI, user_id: str) -> None:
-    updated = client.portal.call(app.state.db_manager.update_user_role, user_id, "admin")
-    assert updated is not None and updated["role"] == "admin"
+def _promote_to_developer(client: TestClient, app: FastAPI, user_id: str) -> None:
+    updated = client.portal.call(
+        app.state.db_manager.update_user_role, user_id, "developer"
+    )
+    assert updated is not None and updated["role"] == "developer"
     _relogin(client, updated["username"])
 
 
@@ -223,7 +225,7 @@ def test_middleware_records_user_role_change(
     # 准备：admin + 普通用户
     target = _register(client, "victim")
     admin = _register(client, "auditor")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # 触发 PATCH
     resp = client.patch(
@@ -258,7 +260,7 @@ def test_middleware_records_user_ban(client: TestClient, app: FastAPI) -> None:
     """admin PATCH 改 status=banned → user_ban 记录。"""
     target = _register(client, "toban")
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.patch(
         f"/api/admin/users/{target['user_id']}",
@@ -277,7 +279,7 @@ def test_middleware_records_user_ban(client: TestClient, app: FastAPI) -> None:
 def test_middleware_does_not_record_get(client: TestClient, app: FastAPI) -> None:
     """GET /api/admin/users 不会写 audit_logs。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # 先清空（如有上次写入）
     before = client.get("/api/admin/audit-logs").json()["total"]
@@ -294,7 +296,7 @@ def test_middleware_does_not_record_failed_response(
 ) -> None:
     """失败响应（4xx/5xx）不写入 audit_logs（design.md 决策 5）。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     before = client.get("/api/admin/audit-logs").json()["total"]
 
@@ -319,7 +321,7 @@ def test_middleware_filters_password_fields_in_detail(
     """
     target = _register(client, "victim2")
     admin = _register(client, "theadmin2")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # 即便业务端会忽略多余字段，中间件 detail 不应泄漏
     resp = client.patch(
@@ -352,7 +354,7 @@ def test_list_pagination(client: TestClient, app: FastAPI) -> None:
     targets = [_register(client, f"victim_{i}") for i in range(3)]
     # 最后注册 admin 并 promote（避免被后续 register 覆盖 session）
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # admin 视角逐个改 role，触发 3 次写
     for t in targets:
@@ -378,7 +380,7 @@ def test_list_filter_by_action(client: TestClient, app: FastAPI) -> None:
     """action=user_role_change 筛选只返回该类型。"""
     target = _register(client, "target1")
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     # 触发 role_change
     client.patch(
@@ -398,7 +400,7 @@ def test_list_filter_by_action(client: TestClient, app: FastAPI) -> None:
 def test_list_actions_dict_returned(client: TestClient, app: FastAPI) -> None:
     """响应中 actions 字段供前端筛选下拉框。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     body = client.get("/api/admin/audit-logs").json()
     assert "actions" in body
@@ -433,12 +435,25 @@ def test_list_user_role_returns_403(client: TestClient, app: FastAPI) -> None:
     assert resp.status_code == 403
 
 
+def test_list_admin_role_returns_403(client: TestClient, app: FastAPI) -> None:
+    """服务台 admin 不能查看系统运维操作日志。"""
+    admin = _register(client, "serviceadmin")
+    updated = client.portal.call(
+        app.state.db_manager.update_user_role, admin["user_id"], "admin"
+    )
+    assert updated is not None
+    _relogin(client, "serviceadmin")
+
+    resp = client.get("/api/admin/audit-logs")
+    assert resp.status_code == 403
+
+
 def test_invalid_action_filter_returns_422(
     client: TestClient, app: FastAPI
 ) -> None:
     """action=invalid_xxx → 422 + 返回合法 action 列表。"""
     admin = _register(client, "theadmin")
-    _promote_to_admin(client, app, admin["user_id"])
+    _promote_to_developer(client, app, admin["user_id"])
 
     resp = client.get("/api/admin/audit-logs?action=invalid_xxx")
     assert resp.status_code == 422

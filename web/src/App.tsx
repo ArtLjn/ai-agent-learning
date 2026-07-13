@@ -45,8 +45,22 @@ function App() {
               </RequireRole>
             }
           />
-          <Route path="tickets" element={<Tickets />} />
-          <Route path="tickets/:id" element={<TicketDetail />} />
+          <Route
+            path="tickets"
+            element={
+              <RequireRole roles={['user', 'admin']}>
+                <Tickets />
+              </RequireRole>
+            }
+          />
+          <Route
+            path="tickets/:id"
+            element={
+              <RequireRole roles={['user', 'admin']}>
+                <TicketDetail />
+              </RequireRole>
+            }
+          />
           <Route path="profile" element={<Profile />} />
 
           {/* 角色受限 */}
@@ -85,7 +99,7 @@ function App() {
           <Route
             path="settings"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <Settings />
               </RequireRole>
             }
@@ -93,7 +107,7 @@ function App() {
           <Route
             path="admin/users"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <UserManagement />
               </RequireRole>
             }
@@ -101,7 +115,7 @@ function App() {
           <Route
             path="admin/audit-logs"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <AuditLog />
               </RequireRole>
             }
@@ -111,7 +125,7 @@ function App() {
           <Route
             path="dev/prompts"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <PromptVersions />
               </RequireRole>
             }
@@ -119,7 +133,7 @@ function App() {
           <Route
             path="dev/rag-debug"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <RagDebug />
               </RequireRole>
             }
@@ -127,7 +141,7 @@ function App() {
           <Route
             path="dev/agent-stats"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <AgentCallStats />
               </RequireRole>
             }
@@ -135,7 +149,7 @@ function App() {
           <Route
             path="dev/traces"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <SpanTreeView />
               </RequireRole>
             }
@@ -143,7 +157,7 @@ function App() {
           <Route
             path="dev/tokens"
             element={
-              <RequireRole roles={['admin', 'developer']}>
+              <RequireRole roles={['developer']}>
                 <TokenDashboard />
               </RequireRole>
             }

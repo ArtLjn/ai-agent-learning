@@ -1,7 +1,7 @@
 """用户自助管理路由：信息维护 + 修改密码（U-03 / U-04）。
 
 挂在 /api 前缀下，整组要求登录（require_login）。
-session 内含 user_id 时识别为注册用户；只有 username 时为 Settings 兜底管理员。
+    session 内含 user_id 时识别为注册用户；只有 username 时为 Settings 兜底运维账号。
 """
 
 import json
@@ -68,7 +68,7 @@ async def get_me(
     """返回当前登录用户的完整信息（不含 password_hash）。"""
     user_id = _resolve_current_user_id(session_user)
     if user_id is None:
-        # Settings 兜底管理员（无 DB 行），返回 session 内的合成信息
+        # Settings 兜底运维账号（无 DB 行），返回 session 内的合成信息
         return public_user({
             "user_id": None,
             "username": session_user.get("username"),
@@ -76,7 +76,7 @@ async def get_me(
             "status": "active",
             "vip_level": 0,
             "preferred_categories": [],
-            "role": session_user.get("role", "admin"),
+            "role": session_user.get("role", "developer"),
         })
 
     db_manager = request.app.state.db_manager
@@ -98,7 +98,7 @@ async def get_my_permissions(
 
     role 解析优先级（DB 是权威，避免管理员后台改 role 后老 session 失效）：
       1. 注册用户 → 查 DB 拿最新 role
-      2. Settings 兜底管理员（无 DB 行）→ session.role（admin）
+      2. Settings 兜底运维账号（无 DB 行）→ session.role（developer）
       3. 演示模式（auth_enabled=false）→ admin
       4. 兜底 user
     """
@@ -114,7 +114,7 @@ async def get_my_permissions(
         if db_user is not None:
             role = db_user.get("role") or "user"
 
-    # Settings 兜底管理员（无 DB 行）→ session 里的 role（login 时写 admin）
+    # Settings 兜底运维账号（无 DB 行）→ session 里的 role（login 时写 developer）
     if role is None:
         role = session_user.get("role")
 

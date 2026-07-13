@@ -1,6 +1,6 @@
 """管理员模块：Prompt 版本管理路由（D-02）。
 
-挂在 /api/admin 前缀下，整组要求 admin 角色。
+挂在 /api/admin 前缀下，整组要求 developer 系统运维角色。
 支持 5 个 Agent：intent / classify / process / review / coordinator
 
 接口：
@@ -28,7 +28,7 @@ __all__ = ["router"]
 router = APIRouter(
     prefix="/admin/prompts",
     tags=["admin-prompts"],
-    dependencies=[Depends(require_role("admin", "developer"))],
+    dependencies=[Depends(require_role("developer"))],
 )
 
 

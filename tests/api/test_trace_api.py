@@ -39,7 +39,8 @@ def _build_app() -> FastAPI:
 
 
 @pytest.fixture
-def app():
+def app(monkeypatch):
+    monkeypatch.setenv("AUTH_ENABLED", "false")
     return _build_app()
 
 

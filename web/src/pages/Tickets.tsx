@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTickets, useCreateTicket } from '@/hooks/useApi'
 import { api } from '@/lib/api'
@@ -249,6 +249,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
 
 export function Tickets() {
   const navigate = useNavigate()
+  const [auth, setAuth] = useState<{ role: string | null } | null>(null)
   const [status, setStatus] = useState<string>('')
   const [category, setCategory] = useState<string>('')
   const [search, setSearch] = useState('')
@@ -261,6 +262,22 @@ export function Tickets() {
   if (category) params.category = category
 
   const { data: tickets = [], isLoading, refetch } = useTickets(params)
+  const isEmployee = auth?.role === 'user'
+
+  useEffect(() => {
+    let alive = true
+    api
+      .getAuthState()
+      .then((state) => {
+        if (alive) setAuth({ role: state.role })
+      })
+      .catch(() => {
+        if (alive) setAuth(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const filtered = useMemo(() => {
     if (!search) return tickets
@@ -294,37 +311,45 @@ export function Tickets() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">员工服务工单</h2>
-          <p className="mt-1 text-sm text-muted-foreground">提交内部服务请求并追踪处理进度</p>
+          <h2 className="text-xl font-semibold">
+            {isEmployee ? '我的服务请求' : '服务台工单受理'}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {isEmployee
+              ? '提交内部服务请求并追踪处理进度'
+              : '查看服务请求队列，核查分类优先级并跟进人工兜底事项'}
+          </p>
         </div>
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogTrigger render={<Button size="sm" />}>
-            <Plus className="h-4 w-4" />
-            提交工单
-          </DialogTrigger>
-          <DialogContent className="border-border bg-card sm:max-w-[680px]">
-            <DialogHeader>
-              <div className="flex items-start gap-3 pr-8">
-                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
-                  <Bot className="h-5 w-5" />
+        {isEmployee && (
+          <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+            <DialogTrigger render={<Button size="sm" />}>
+              <Plus className="h-4 w-4" />
+              提交请求
+            </DialogTrigger>
+            <DialogContent className="border-border bg-card sm:max-w-[680px]">
+              <DialogHeader>
+                <div className="flex items-start gap-3 pr-8">
+                  <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+                    <Bot className="h-5 w-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <DialogTitle>提交服务请求</DialogTitle>
+                    <DialogDescription>
+                      选择服务类型，描述问题，并补充可选关键材料。
+                    </DialogDescription>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <DialogTitle>提交服务工单</DialogTitle>
-                  <DialogDescription>
-                    选择服务类型，描述问题，并补充可选关键材料。
-                  </DialogDescription>
-                </div>
-              </div>
-            </DialogHeader>
-            <AgentTicketComposer compact onCreated={handleCreatedFromDialog} />
-            <DialogFooter className="border-t border-border pt-4 text-xs text-muted-foreground">
-              系统会先整理问题信息，再创建并分派工单。
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              </DialogHeader>
+              <AgentTicketComposer compact onCreated={handleCreatedFromDialog} />
+              <DialogFooter className="border-t border-border pt-4 text-xs text-muted-foreground">
+                系统会先整理问题信息，再创建并分派工单。
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
-      <AgentTicketComposer onCreated={() => refetch()} />
+      {isEmployee && <AgentTicketComposer onCreated={() => refetch()} />}
 
       <Card className="border-border bg-card">
         <CardContent className="p-3">
@@ -332,7 +357,7 @@ export function Tickets() {
             <div className="relative max-w-xs flex-1">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground" />
               <Input
-                placeholder="搜索工单..."
+                placeholder={isEmployee ? '搜索我的请求...' : '搜索待受理工单...'}
                 value={search}
                 onChange={(e) => {
                   setSearch(e.target.value)

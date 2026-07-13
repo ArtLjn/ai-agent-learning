@@ -223,10 +223,10 @@ export function Dashboard() {
     const suggestions = [
       pendingReviews > 0
         ? `有 ${pendingReviews} 个工单等待人工审核，建议优先处理 P0/P1 队列。`
-        : '人工审核队列清空，当前可重点观察自动化处理质量。',
+        : '人工审核队列清空，当前可重点关注用户反馈和知识维护。',
       failed > 0
-        ? `失败工单 ${failed} 个，建议查看 Agent 监控中的异常 span。`
-        : '暂无失败工单，自动处理链路保持稳定。',
+        ? `失败工单 ${failed} 个，建议进入审核工作台复核处理原因。`
+        : '暂无失败工单，服务请求处理保持稳定。',
       highPriorityOpen.length > 0
         ? `仍有 ${highPriorityOpen.length} 个高优先级未闭环工单。`
         : '高优先级工单暂无积压。',
@@ -272,11 +272,11 @@ export function Dashboard() {
         <div>
           <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.18em] text-primary">
             <Sparkles className="h-3.5 w-3.5" />
-            Agent 工单运营总览
+            服务台运营总览
           </div>
-          <h2 className="mt-2 text-2xl font-semibold">Dashboard</h2>
+          <h2 className="mt-2 text-2xl font-semibold">服务台总览</h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            汇总工单流量、自动化质量、人工审核压力与 Agent 执行效率
+            汇总服务请求流量、人工审核压力、AI 建议采纳、知识维护与用户反馈
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -302,7 +302,7 @@ export function Dashboard() {
               color="text-primary"
             />
             <HeroMetric
-              label="自动通过率"
+              label="自动闭环率"
               value={toPercent(dashboard.successRate)}
               detail={`${dashboard.completed} 已完成 / ${dashboard.failed} 失败`}
               icon={TrendingUp}
@@ -318,7 +318,7 @@ export function Dashboard() {
             <HeroMetric
               label="平均耗时"
               value={formatSeconds(dashboard.avgDuration)}
-              detail={`平均 ${formatNumber(dashboard.avgTools, 1)} 次工具调用`}
+              detail={`平均 ${formatNumber(dashboard.avgTools, 1)} 个处理步骤`}
               icon={Timer}
               color="text-primary"
             />
@@ -329,13 +329,13 @@ export function Dashboard() {
           <CardContent className="grid grid-cols-[150px_1fr] gap-3 p-4">
             <QualityRing value={dashboard.healthScore} />
             <div className="flex min-w-0 flex-col justify-center">
-              <p className="text-xs text-muted-foreground">运行健康度</p>
+              <p className="text-xs text-muted-foreground">服务压力指数</p>
               <div className="mt-1 flex items-end gap-2">
                 <span className="text-3xl font-bold text-foreground">{dashboard.healthScore}</span>
                 <span className="pb-1 text-sm text-muted-foreground">/ 100</span>
               </div>
               <p className="mt-2 text-xs leading-5 text-muted-foreground">
-                根据失败、积压、待审核、高优先级和重试情况扣分，反映当前运行压力。
+                根据失败、积压、待审核、高优先级和返工情况扣分，反映当前服务台压力。
               </p>
             </div>
           </CardContent>
@@ -459,7 +459,7 @@ export function Dashboard() {
 
       <div className="grid gap-4 md:grid-cols-3">
         <PipelineCard label="接入与分类" value={dashboard.totalTickets} icon={TicketIcon} color="text-primary" />
-        <PipelineCard label="Agent 处理" value={dashboard.activeCount + dashboard.completed} icon={Wrench} color="text-warning" />
+        <PipelineCard label="服务处理" value={dashboard.activeCount + dashboard.completed} icon={Wrench} color="text-warning" />
         <PipelineCard label="质量复核完成" value={dashboard.completed} icon={CheckCircle2} color="text-success" />
       </div>
     </div>
