@@ -52,6 +52,8 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         "username": user.get("username"),
         "nickname": user.get("nickname") or user.get("name"),
         "contact": user.get("contact"),
+        "department": user.get("department"),
+        "position": user.get("position"),
         "vip_level": user.get("vip_level", 0),
         "preferred_categories": _parse_preferred_categories(
             user.get("preferred_categories")

@@ -14,6 +14,70 @@ export interface TicketProgress {
   steps: TicketProgressStep[]
 }
 
+export interface KeyMaterialPrompt {
+  title: string
+  helperText: string
+  placeholder: string
+}
+
+export const SERVICE_TYPE_OPTIONS = [
+  { value: 'account_access', label: '账号与权限' },
+  { value: 'business_system', label: '业务系统' },
+  { value: 'office_device', label: '办公设备' },
+  { value: 'network', label: '网络环境' },
+  { value: 'administrative', label: '行政服务' },
+  { value: 'other', label: '其他服务' },
+] as const
+
+export type ServiceType = (typeof SERVICE_TYPE_OPTIONS)[number]['value']
+
+const SERVICE_TYPE_LABELS = SERVICE_TYPE_OPTIONS.reduce<Record<string, string>>((acc, option) => {
+  acc[option.value] = option.label
+  return acc
+}, {})
+
+const MATERIAL_PROMPTS: Record<string, KeyMaterialPrompt> = {
+  account_access: {
+    title: '账号与权限材料',
+    helperText: '可补充账号、系统入口、权限范围、报错提示和影响范围。',
+    placeholder: '例如：账号 alice@example.com；系统：企业邮箱；报错：密码正确但提示账号锁定。',
+  },
+  business_system: {
+    title: '业务系统材料',
+    helperText: '可补充系统名称、页面入口、操作步骤、发生时间和错误提示。',
+    placeholder: '例如：系统：CRM；入口：客户列表；操作：导出报表；错误提示：请求超时。',
+  },
+  office_device: {
+    title: '办公设备材料',
+    helperText: '可补充设备类型、资产编号、故障现象、所在位置和是否影响办公。',
+    placeholder: '例如：设备：打印机；位置：3F 西区；现象：卡纸后无法继续打印。',
+  },
+  network: {
+    title: '网络环境材料',
+    helperText: '可补充办公区域、网络类型、受影响设备、发生时间和错误截图说明。',
+    placeholder: '例如：区域：4F 会议室；网络：Wi-Fi；现象：连接后无法访问内网系统。',
+  },
+  administrative: {
+    title: '行政服务材料',
+    helperText: '可补充服务事项、期望时间、地点、人数或相关审批信息。',
+    placeholder: '例如：事项：会议室空调维修；地点：2F A201；期望处理时间：今天下午。',
+  },
+  other: {
+    title: '关键材料',
+    helperText: '可选填写相关系统、账号、时间、地点、截图说明或其他上下文。',
+    placeholder: '请补充能帮助服务台判断问题的关键信息。',
+  },
+}
+
+export function getServiceTypeLabel(serviceType: string | null | undefined) {
+  if (!serviceType) return '未选择'
+  return SERVICE_TYPE_LABELS[serviceType] || serviceType
+}
+
+export function getKeyMaterialPrompt(serviceType: string | null | undefined): KeyMaterialPrompt {
+  return MATERIAL_PROMPTS[serviceType || ''] || MATERIAL_PROMPTS.other
+}
+
 export function extractUserTicketContent(content: string) {
   const marker = '【原始描述】'
   const index = content.lastIndexOf(marker)
@@ -56,7 +120,7 @@ export function getTicketProgress(status: TicketStatus): TicketProgress {
         percent: 55,
         currentStep: 2,
         label: '正在生成处理方案',
-        detail: 'Agent 正在结合已有资料整理可执行的处理建议。',
+        detail: '系统正在结合已有资料整理可执行的处理建议。',
         tone: 'active',
       }
     case 'reviewing':

@@ -3,6 +3,8 @@ export interface Ticket {
   ticket_id: string
   content: string
   user_id?: string
+  service_type?: string | null
+  key_materials?: Record<string, unknown>
   category: string | null
   priority: string | null
   processing_result: string | null
@@ -25,6 +27,8 @@ export interface UserProfile {
   username: string | null
   nickname: string | null
   contact: string | null
+  department: string | null
+  position: string | null
   vip_level: number
   preferred_categories: TicketCategory[]
   created_at: string | null
@@ -47,6 +51,8 @@ export interface RegisterResponse {
 export interface UpdateMeRequest {
   nickname?: string
   contact?: string
+  department?: string
+  position?: string
   preferred_categories?: TicketCategory[]
 }
 
@@ -62,6 +68,8 @@ export interface ChangePasswordResponse {
 
 export interface TicketCreateRequest {
   content: string
+  service_type?: string
+  key_materials?: Record<string, unknown>
   user_id?: string
 }
 

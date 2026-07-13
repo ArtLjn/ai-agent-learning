@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTickets, useCreateTicket } from '@/hooks/useApi'
 import { api } from '@/lib/api'
+import { getKeyMaterialPrompt, SERVICE_TYPE_OPTIONS } from '@/lib/ticketPresentation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -51,21 +52,27 @@ interface AgentTicketComposerProps {
 
 export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketComposerProps) {
   const [content, setContent] = useState('')
+  const [serviceType, setServiceType] = useState('account_access')
+  const [keyMaterials, setKeyMaterials] = useState('')
   const [mockPrompt, setMockPrompt] = useState('')
   const [mockSource, setMockSource] = useState<string>('')
   const [mockCategory, setMockCategory] = useState<TicketCategory>('inquiry')
   const [mockLoading, setMockLoading] = useState(false)
   const createMutation = useCreateTicket()
+  const materialPrompt = getKeyMaterialPrompt(serviceType)
 
-  const canSubmit = content.trim().length >= 8 && !createMutation.isPending
+  const canSubmit = content.trim().length > 0 && !createMutation.isPending
 
   const handleSubmit = async () => {
     if (!canSubmit) return
     // user_id 由后端从 session 自动注入（防伪造），前端不再显示也不传
     await createMutation.mutateAsync({
       content: content.trim(),
+      service_type: serviceType,
+      key_materials: keyMaterials.trim() ? { notes: keyMaterials.trim() } : {},
     })
     setContent('')
+    setKeyMaterials('')
     onCreated?.()
   }
 
@@ -77,7 +84,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
       setContent(result.prompt)
       const categoryLabel = result.category ? MOCK_CATEGORY_LABELS[result.category] : MOCK_CATEGORY_LABELS[mockCategory]
       setMockSource(result.knowledge_title
-        ? `${categoryLabel} · ${result.generation_mode === 'llm' ? 'AI 生成' : '兜底生成'} · ${result.knowledge_title}`
+        ? `${categoryLabel} · ${result.generation_mode === 'llm' ? '智能生成' : '兜底生成'} · ${result.knowledge_title}`
         : `${categoryLabel} · 兜底生成`)
     } catch {
       const fallback = EXAMPLE_PROMPTS[Math.floor(Math.random() * EXAMPLE_PROMPTS.length)]
@@ -99,13 +106,13 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h3 className="text-sm font-semibold">AI 创建工单</h3>
+                <h3 className="text-sm font-semibold">创建服务工单</h3>
                 <Badge variant="outline" className="border-primary/30 bg-primary/10 text-[10px] text-primary">
-                  Agent 理解
+                  智能识别
                 </Badge>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                直接描述问题，后端 Agent 会自动提取类型、优先级、影响范围和联系方式。
+                选择服务类型并描述问题，系统会整理处理方向并进入服务台流程。
               </p>
             </div>
           </div>
@@ -116,11 +123,47 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
         </div>
       )}
 
+      <div className="mb-3 grid gap-3 lg:grid-cols-[220px_1fr]">
+        <div className="space-y-1.5">
+          <label htmlFor={compact ? 'ticket-service-type-compact' : 'ticket-service-type'} className="text-xs font-medium text-foreground">
+            服务类型
+          </label>
+          <Select
+            value={serviceType}
+            onValueChange={(value) => setServiceType(value || 'other')}
+          >
+            <SelectTrigger id={compact ? 'ticket-service-type-compact' : 'ticket-service-type'} className="h-9 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="border-border bg-popover">
+              {SERVICE_TYPE_OPTIONS.map(option => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <label htmlFor={compact ? 'ticket-key-materials-compact' : 'ticket-key-materials'} className="text-xs font-medium text-foreground">
+            {materialPrompt.title}
+          </label>
+          <Input
+            id={compact ? 'ticket-key-materials-compact' : 'ticket-key-materials'}
+            value={keyMaterials}
+            onChange={(e) => setKeyMaterials(e.target.value)}
+            placeholder={materialPrompt.placeholder}
+            className="h-9 text-sm"
+          />
+          <p className="text-[11px] text-muted-foreground">{materialPrompt.helperText}</p>
+        </div>
+      </div>
+
       <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
         <Textarea
           value={content}
           onChange={(e) => setContent(e.target.value)}
-          placeholder="例如：今天上午 10:15 开始后台一直 504，部分业务人员无法登录，请尽快恢复，联系 ops@example.com"
+          placeholder="例如：今天上午 10:15 开始企业邮箱无法登录，影响我接收项目通知，请协助恢复。"
           rows={compact ? 5 : 2}
           className="min-h-[72px] resize-none"
         />
@@ -143,7 +186,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
       </div>
 
       <div className="mt-3 grid gap-2 lg:grid-cols-[auto_auto_auto_auto_auto_1fr] lg:items-center">
-        <span className="text-[11px] text-muted-foreground">Agent 将自动生成：</span>
+        <span className="text-[11px] text-muted-foreground">系统将辅助整理：</span>
         <Badge variant="secondary" className="w-fit text-[10px]">问题标题</Badge>
         <Badge variant="secondary" className="w-fit text-[10px]">分类</Badge>
         <Badge variant="secondary" className="w-fit text-[10px]">优先级</Badge>
@@ -170,9 +213,9 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
             type="button"
             onClick={() => mockPrompt && setContent(mockPrompt)}
             className="min-h-8 flex-1 truncate px-2.5 text-left text-[11px] text-muted-foreground hover:text-foreground"
-            title={mockPrompt || '点击右侧刷新，让 Agent 根据知识库生成一个 mock 问题'}
+            title={mockPrompt || '点击右侧刷新，根据知识库生成一个示例问题'}
           >
-            {mockPrompt || 'Agent 可根据知识库生成一条 mock 问题'}
+            {mockPrompt || '可根据知识库生成一条示例问题'}
           </button>
           {mockSource && (
             <span className="hidden shrink-0 px-2 text-[10px] text-muted-foreground/80 lg:inline">
@@ -251,8 +294,8 @@ export function Tickets() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-semibold">工单列表</h2>
-          <p className="mt-1 text-sm text-muted-foreground">提交问题并追踪工单处理进度</p>
+          <h2 className="text-xl font-semibold">员工服务工单</h2>
+          <p className="mt-1 text-sm text-muted-foreground">提交内部服务请求并追踪处理进度</p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger render={<Button size="sm" />}>
@@ -266,16 +309,16 @@ export function Tickets() {
                   <Bot className="h-5 w-5" />
                 </div>
                 <div className="space-y-1">
-                  <DialogTitle>AI 提交工单</DialogTitle>
+                  <DialogTitle>提交服务工单</DialogTitle>
                   <DialogDescription>
-                    不需要填写传统表单，直接说清楚问题即可。
+                    选择服务类型，描述问题，并补充可选关键材料。
                   </DialogDescription>
                 </div>
               </div>
             </DialogHeader>
             <AgentTicketComposer compact onCreated={handleCreatedFromDialog} />
             <DialogFooter className="border-t border-border pt-4 text-xs text-muted-foreground">
-              后端 Agent 会先理解意图，再创建并分派工单。
+              系统会先整理问题信息，再创建并分派工单。
             </DialogFooter>
           </DialogContent>
         </Dialog>

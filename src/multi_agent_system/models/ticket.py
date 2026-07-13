@@ -3,7 +3,9 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
     "BatchTicketCreate",
@@ -50,9 +52,20 @@ class TicketPriority(str, Enum):
 class TicketCreate(BaseModel):
     """用户提交的工单。"""
 
-    content: str
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(..., min_length=1)
+    service_type: str | None = Field(default=None, max_length=64)
+    key_materials: dict[str, Any] = Field(default_factory=dict)
     user_id: str | None = None
     customer_id: str | None = None  # backward compat
+
+    @model_validator(mode="after")
+    def _validate_content(self) -> "TicketCreate":
+        self.content = self.content.strip()
+        if not self.content:
+            raise ValueError("TICKET_CONTENT_REQUIRED: 问题描述不能为空")
+        return self
 
 
 class TicketResponse(BaseModel):
@@ -60,6 +73,8 @@ class TicketResponse(BaseModel):
 
     ticket_id: str
     content: str
+    service_type: str | None = None
+    key_materials: dict[str, Any] = Field(default_factory=dict)
     category: TicketCategory | None = None
     priority: TicketPriority | None = None
     processing_result: str | None = None
@@ -68,6 +83,7 @@ class TicketResponse(BaseModel):
     retry_count: int = 0
     status: TicketStatus = TicketStatus.RECEIVED
     error: str | None = None
+    satisfied: int | bool | None = None
     created_at: datetime = Field(default_factory=datetime.now)
 
 

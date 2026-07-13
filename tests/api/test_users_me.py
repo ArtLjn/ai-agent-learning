@@ -92,6 +92,8 @@ def test_get_me_returns_logged_in_user(client: TestClient) -> None:
     assert body["nickname"] == "Alice"
     assert body["vip_level"] == 0
     assert body["preferred_categories"] == []
+    assert body["department"] is None
+    assert body["position"] is None
     assert "password_hash" not in body
 
 
@@ -133,6 +135,30 @@ def test_patch_me_updates_contact(client: TestClient) -> None:
     )
     assert resp.status_code == 200
     assert resp.json()["contact"] == "alice@example.com"
+
+
+def test_patch_me_updates_employee_service_profile_fields(client: TestClient) -> None:
+    """员工服务档案允许维护部门、岗位和偏好服务类型。"""
+    _register_and_keep_session(client)
+
+    resp = client.patch(
+        "/api/users/me",
+        json={
+            "nickname": "Alice Service",
+            "contact": "alice@example.com",
+            "department": "研发中心",
+            "position": "后端工程师",
+            "preferred_categories": ["technical", "inquiry"],
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["nickname"] == "Alice Service"
+    assert body["department"] == "研发中心"
+    assert body["position"] == "后端工程师"
+    assert set(body["preferred_categories"]) == {"technical", "inquiry"}
+    assert "password_hash" not in body
 
 
 def test_patch_me_partial_update_keeps_other_fields(client: TestClient) -> None:

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '@/lib/api'
+import type { TicketCreateRequest } from '@/types'
 
 // 工单
 export function useTickets(params?: Record<string, string>) {
@@ -31,7 +32,7 @@ export function useTicket(id: string, refetchWhileActive = false) {
 export function useCreateTicket() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { content: string; user_id?: string }) => api.createTicket(data),
+    mutationFn: (data: TicketCreateRequest) => api.createTicket(data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tickets'] }),
   })
 }

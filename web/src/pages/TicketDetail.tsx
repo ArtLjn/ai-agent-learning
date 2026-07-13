@@ -22,7 +22,12 @@ import { Markdown } from '@/components/ui/markdown'
 import { formatDuration } from '@/components/trace/spanTypes'
 import { canUseTicketReplyComposer } from '@/lib/ticketDetailPermissions'
 import { getTicketSupplementPrompt } from '@/lib/ticketSupplementPrompt'
-import { extractUserTicketContent, getTicketProgress, type TicketProgress } from '@/lib/ticketPresentation'
+import {
+  extractUserTicketContent,
+  getServiceTypeLabel,
+  getTicketProgress,
+  type TicketProgress,
+} from '@/lib/ticketPresentation'
 import { cn } from '@/lib/utils'
 import {
   ArrowLeft, MessageSquare, Brain, Clock, Layers, Bot, Wrench,
@@ -54,6 +59,7 @@ export function TicketDetail() {
   const [selectedSpan, setSelectedSpan] = useState<Span | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
   const [reply, setReply] = useState('')
+  const [appealReason, setAppealReason] = useState('')
 
   useEffect(() => {
     let alive = true
@@ -85,8 +91,10 @@ export function TicketDetail() {
   })
 
   const submitFeedback = useMutation({
-    mutationFn: (satisfied: boolean) => api.submitFeedback(id!, satisfied),
+    mutationFn: ({ satisfied, reason }: { satisfied: boolean; reason?: string }) =>
+      api.submitFeedback(id!, satisfied, reason),
     onSuccess: (result) => {
+      setAppealReason('')
       qc.invalidateQueries({ queryKey: ['ticket', id] })
       qc.invalidateQueries({ queryKey: ['tickets'] })
       if (result.satisfied) {
@@ -178,6 +186,9 @@ export function TicketDetail() {
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <InfoField label="状态"><StatusBadge status={ticket.status} /></InfoField>
+                <InfoField label="服务类型">
+                  <Badge variant="secondary">{getServiceTypeLabel(ticket.service_type)}</Badge>
+                </InfoField>
                 {!isUser && (
                   <>
                     <InfoField label="分类">{ticket.category ? <CategoryBadge category={ticket.category} /> : '-'}</InfoField>
@@ -189,6 +200,10 @@ export function TicketDetail() {
                 )}
               </div>
               {isUser && <TicketProgressCard progress={progress} />}
+              <Separator className="bg-border" />
+              <InfoField label="关键材料">
+                <KeyMaterialsView materials={ticket.key_materials} />
+              </InfoField>
               <Separator className="bg-border" />
               <InfoField label="工单内容">
                 <div className="mt-1">
@@ -278,7 +293,12 @@ export function TicketDetail() {
             satisfied={ticket.satisfied}
             canSubmit={role === 'user'}
             submitting={submitFeedback.isPending}
-            onSubmit={(satisfied) => submitFeedback.mutate(satisfied)}
+            appealReason={appealReason}
+            onAppealReasonChange={setAppealReason}
+            onSubmit={(satisfied) => submitFeedback.mutate({
+              satisfied,
+              reason: satisfied ? undefined : appealReason.trim(),
+            })}
           />
         </div>
 
@@ -485,6 +505,24 @@ function InfoField({ label, children }: { label: string; children: React.ReactNo
   )
 }
 
+function KeyMaterialsView({ materials }: { materials?: Record<string, unknown> | null }) {
+  const entries = Object.entries(materials || {})
+    .filter(([, value]) => value !== null && value !== undefined && String(value).trim())
+  if (entries.length === 0) {
+    return <p className="text-sm text-muted-foreground">未补充关键材料</p>
+  }
+  return (
+    <div className="space-y-1.5">
+      {entries.map(([key, value]) => (
+        <div key={key} className="rounded-md border border-border bg-background px-2.5 py-2 text-sm">
+          <span className="mr-2 text-xs text-muted-foreground">{key}</span>
+          <span className="text-foreground">{String(value)}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function MiniStat({ icon, label, value }: { icon: React.ReactNode; label: string; value: string | number }) {
   return (
     <div className="bg-background rounded-md p-2.5 border border-border">
@@ -524,20 +562,20 @@ function ReviewGatePlaceholder({
           {isReviewing
             ? '质量审核中，暂不展示最终答复'
             : isWaitingForUser
-            ? 'Agent 已识别知识盲区，等待用户补充'
+            ? '还需要你补充信息，服务台会继续处理'
             : isReworking
-            ? 'Reviewer 已进入打回/返工检查'
-            : '等待 Agent 生成处理方案'}
+            ? '处理结果正在重新核对'
+            : '等待系统生成处理方案'}
         </span>
       </div>
       {hasDraft && !isWaitingForUser && (
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          Processor 已产出处理草稿，但需要 Reviewer 质量门禁通过后才会作为最终处理结果展示。
+          当前已有处理草稿，但需要完成结果核对后才会作为最终处理结果展示。
         </p>
       )}
       {isWaitingForUser && (
         <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-          补充信息提交后，Agent 会结合新上下文重新检索知识库并继续处理。
+          补充信息提交后，系统会结合新上下文继续处理。
         </p>
       )}
     </div>
@@ -677,12 +715,16 @@ function FeedbackCard({
   satisfied,
   canSubmit,
   submitting,
+  appealReason,
+  onAppealReasonChange,
   onSubmit,
 }: {
   status: string
   satisfied?: boolean | number | null
   canSubmit: boolean
   submitting: boolean
+  appealReason: string
+  onAppealReasonChange: (value: string) => void
   onSubmit: (satisfied: boolean) => void
 }) {
   const completed = status === 'completed'
@@ -735,11 +777,28 @@ function FeedbackCard({
                   variant="outline"
                   size="sm"
                   onClick={() => onSubmit(false)}
-                  disabled={submitting}
+                  disabled={submitting || !appealReason.trim()}
                 >
                   <ThumbsDown className="h-4 w-4" />
                   不满意，升级人工
                 </Button>
+              </div>
+            )}
+            {canSubmit && (
+              <div className="space-y-1.5">
+                <label htmlFor="appeal-reason" className="text-xs font-medium text-foreground">
+                  申诉原因
+                </label>
+                <Textarea
+                  id="appeal-reason"
+                  value={appealReason}
+                  onChange={(event) => onAppealReasonChange(event.target.value)}
+                  placeholder="请说明哪里没有解决，或希望服务台人工复核的原因。"
+                  rows={3}
+                />
+                <p className="text-xs text-muted-foreground">
+                  选择“不满意，升级人工”时必须填写原因。
+                </p>
               </div>
             )}
           </div>

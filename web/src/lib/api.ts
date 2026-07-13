@@ -23,6 +23,7 @@ import type {
   SystemConfig,
   SystemSettings,
   Ticket,
+  TicketCreateRequest,
   TicketCategory,
   TicketCreateResponse,
   TicketFeedbackResponse,
@@ -139,7 +140,7 @@ export const api = {
     return request<Ticket[]>(`/tickets${qs}`)
   },
   getTicket: (id: string) => request<Ticket>(`/tickets/${id}`),
-  createTicket: (data: { content: string; user_id?: string }) =>
+  createTicket: (data: TicketCreateRequest) =>
     request<TicketCreateResponse>('/tickets', { method: 'POST', body: JSON.stringify(data) }),
   generateMockTicketQuestion: (category?: TicketCategory) => {
     const qs = category ? `?${new URLSearchParams({ category }).toString()}` : ''
@@ -147,8 +148,11 @@ export const api = {
       `/tickets/mock-question${qs}`,
     )
   },
-  submitFeedback: (id: string, satisfied: boolean) =>
-    request<TicketFeedbackResponse>(`/tickets/${id}/feedback`, { method: 'POST', body: JSON.stringify({ satisfied }) }),
+  submitFeedback: (id: string, satisfied: boolean, reason?: string) =>
+    request<TicketFeedbackResponse>(`/tickets/${id}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ satisfied, reason }),
+    }),
   getTicketMessages: (id: string) =>
     request<TicketMessage[]>(`/tickets/${encodeURIComponent(id)}/messages`),
   createTicketMessage: (id: string, data: TicketMessageCreateRequest) =>

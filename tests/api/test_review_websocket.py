@@ -133,7 +133,7 @@ def test_review_requested_broadcast_payload(app: FastAPI, client: TestClient) ->
         with client.websocket_connect("/api/ws/monitor") as ws:
             resp = client.post(
                 "/api/tickets/TK-WS1/feedback",
-                json={"satisfied": False},
+                json={"satisfied": False, "reason": "处理结果没有解决员工服务请求"},
             )
             assert resp.status_code == 200
             msg = ws.receive_json()

@@ -25,7 +25,13 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 _ALLOWED_CATEGORIES = {"technical", "billing", "complaint", "inquiry"}
-_EDITABLE_FIELDS = {"nickname", "contact", "preferred_categories"}
+_EDITABLE_FIELDS = {
+    "nickname",
+    "contact",
+    "department",
+    "position",
+    "preferred_categories",
+}
 _READONLY_FIELDS = {
     "user_id", "username", "vip_level", "created_at",
     "status", "is_admin", "token_monthly_limit", "token_weekly_limit",
@@ -42,6 +48,8 @@ class UpdateMeRequest(BaseModel):
 
     nickname: str | None = Field(default=None, max_length=32)
     contact: str | None = Field(default=None, max_length=128)
+    department: str | None = Field(default=None, max_length=64)
+    position: str | None = Field(default=None, max_length=64)
     preferred_categories: list[str] | None = None
 
 
@@ -128,7 +136,7 @@ async def update_me(
     request: Request,
     session_user: dict[str, Any] = Depends(require_login),
 ) -> dict[str, Any]:
-    """更新 nickname / contact / preferred_categories。
+    """更新 nickname / contact / department / position / preferred_categories。
 
     不可改字段（user_id / username / vip_level / created_at / status /
     token_*_limit / is_admin）请求中出现则忽略——但因 Pydantic 已限定字段，

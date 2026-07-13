@@ -169,16 +169,30 @@ class DatabaseManager:
             ("users", "password_hash", "VARCHAR(255)"),
             ("users", "nickname", "VARCHAR(32)"),
             ("users", "contact", "VARCHAR(128)"),
+            ("users", "department", "VARCHAR(64)"),
+            ("users", "position", "VARCHAR(64)"),
             ("users", "preferred_categories", "TEXT"),
             ("users", "status", "VARCHAR(16) NOT NULL DEFAULT 'active'"),
             ("users", "created_at", "DATETIME"),
             ("users", "role", "VARCHAR(16) NOT NULL DEFAULT 'user'"),
+            ("tickets", "service_type", "VARCHAR(64)"),
+            ("tickets", "key_materials_json", "TEXT"),
         ]
 
         # 取当前库的现有列，避免逐列查询
         url = make_url(self._url)
-        # sqlite 无 information_schema，测试库由 create_all 建好所有列，跳过迁移
         if url.drivername.startswith("sqlite"):
+            applied = 0
+            for table, col, dtype in migrations:
+                rows = await conn.execute(text(f'PRAGMA table_info("{table}")'))
+                existing_cols = {r[1] for r in rows.fetchall()}
+                if col in existing_cols:
+                    continue
+                await conn.execute(text(f'ALTER TABLE "{table}" ADD COLUMN "{col}" {dtype}'))
+                applied += 1
+                logger.info(f"[Database] Migrated: {table}.{col} ({dtype})")
+            if applied:
+                logger.info(f"[Database] Applied {applied} SQLite column migration(s)")
             return
         db_name = url.database or None
         if not db_name:
@@ -290,6 +304,20 @@ class DatabaseManager:
                 return None
         return None
 
+    @staticmethod
+    def _hydrate_ticket_dict(ticket: dict[str, Any]) -> dict[str, Any]:
+        """解析工单 JSON 扩展字段，保持 API 与测试拿到结构化对象。"""
+        raw = ticket.pop("key_materials_json", None)
+        if raw:
+            try:
+                parsed = json.loads(raw)
+                ticket["key_materials"] = parsed if isinstance(parsed, dict) else {}
+            except json.JSONDecodeError:
+                ticket["key_materials"] = {}
+        else:
+            ticket["key_materials"] = {}
+        return ticket
+
     # ============================================================
     # Ticket CRUD
     # ============================================================
@@ -297,13 +325,14 @@ class DatabaseManager:
     async def save_ticket(self, ticket_data: dict[str, Any]) -> None:
         """保存或更新工单。
 
-        若 ticket_data 中不含 references 字段，保留既有 references_json。
+        若 ticket_data 中不含 references/key_materials 字段，保留既有 JSON 扩展字段。
         """
         async with self._session() as session:
             ticket_id = ticket_data.get("ticket_id")
             existing = await session.get(TicketORM, ticket_id) if ticket_id else None
 
             references_in_dict = "references" in ticket_data
+            key_materials_in_dict = "key_materials" in ticket_data
             if existing is None:
                 # INSERT 分支
                 references_value = ticket_data.get("references")
@@ -312,10 +341,18 @@ class DatabaseManager:
                     if references_in_dict
                     else None
                 )
+                key_materials_value = ticket_data.get("key_materials")
+                key_materials_json = (
+                    json.dumps(key_materials_value or {}, ensure_ascii=False)
+                    if key_materials_in_dict
+                    else None
+                )
                 data = {
                     "ticket_id": ticket_data.get("ticket_id"),
                     "user_id": ticket_data.get("user_id"),
                     "content": ticket_data.get("content"),
+                    "service_type": ticket_data.get("service_type"),
+                    "key_materials_json": key_materials_json,
                     "category": ticket_data.get("category"),
                     "priority": ticket_data.get("priority"),
                     "processing_result": ticket_data.get("processing_result"),
@@ -335,7 +372,7 @@ class DatabaseManager:
             else:
                 # UPDATE 分支
                 fields = [
-                    "user_id", "content", "category", "priority",
+                    "user_id", "content", "service_type", "category", "priority",
                     "processing_result", "review_score", "retry_count", "status",
                     "error", "resolved_at", "satisfied", "token_count",
                     "tool_call_count", "total_duration",
@@ -351,6 +388,11 @@ class DatabaseManager:
                     existing.references_json = json.dumps(
                         references_value or [], ensure_ascii=False
                     )
+                if key_materials_in_dict:
+                    key_materials_value = ticket_data.get("key_materials")
+                    existing.key_materials_json = json.dumps(
+                        key_materials_value or {}, ensure_ascii=False
+                    )
                 if "created_at" in ticket_data:
                     existing.created_at = self._parse_datetime(ticket_data["created_at"])
             await session.commit()
@@ -358,7 +400,7 @@ class DatabaseManager:
     async def get_ticket(self, ticket_id: str) -> dict[str, Any] | None:
         async with self._session() as session:
             obj = await session.get(TicketORM, ticket_id)
-            return self._orm_to_dict(obj) if obj else None
+            return self._hydrate_ticket_dict(self._orm_to_dict(obj)) if obj else None
 
     async def list_tickets(
         self,
@@ -378,7 +420,10 @@ class DatabaseManager:
                 stmt = stmt.where(TicketORM.user_id == user_id)
             stmt = stmt.order_by(TicketORM.created_at.desc()).limit(limit).offset(offset)
             result = await session.execute(stmt)
-            return [self._orm_to_dict(o) for o in result.scalars().all()]
+            return [
+                self._hydrate_ticket_dict(self._orm_to_dict(o))
+                for o in result.scalars().all()
+            ]
 
     # ============================================================
     # User CRUD
@@ -408,6 +453,10 @@ class DatabaseManager:
                 "total_tickets": user_data.get("total_tickets", 0),
                 "last_contact": self._parse_datetime(user_data.get("last_contact")),
             }
+            if "department" in user_data:
+                data["department"] = user_data.get("department")
+            if "position" in user_data:
+                data["position"] = user_data.get("position")
             if existing is None:
                 session.add(UserORM(user_id=user_id, **data))
             else:
@@ -430,6 +479,8 @@ class DatabaseManager:
                 password_hash=user_data["password_hash"],
                 nickname=user_data.get("nickname") or user_data["username"],
                 contact=user_data.get("contact"),
+                department=user_data.get("department"),
+                position=user_data.get("position"),
                 preferred_categories=preferred_json,
                 vip_level=0,
                 status="active",
@@ -451,8 +502,14 @@ class DatabaseManager:
     async def update_user_profile(
         self, user_id: str, updates: dict[str, Any]
     ) -> dict[str, Any] | None:
-        """更新 nickname/contact/preferred_categories；其他字段忽略。"""
-        allowed = {"nickname", "contact", "preferred_categories"}
+        """更新员工可维护服务档案字段；其他字段忽略。"""
+        allowed = {
+            "nickname",
+            "contact",
+            "department",
+            "position",
+            "preferred_categories",
+        }
         valid = {k: v for k, v in updates.items() if k in allowed}
         if "preferred_categories" in valid:
             value = valid["preferred_categories"]

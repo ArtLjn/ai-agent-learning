@@ -144,21 +144,30 @@ def _build_ticket_response(ticket: dict[str, Any], *, role: str) -> TicketRespon
     """按角色构造工单响应；user 视角过滤内部处理细节。"""
     processing_result = ticket.get("processing_result")
     content = ticket.get("content", "")
+    references = _parse_references(ticket)
+    review_score = ticket.get("review_score")
+    retry_count = ticket.get("retry_count", 0)
     if role == "user":
         content = _extract_user_ticket_content(content)
         processing_result = _sanitize_processing_result_for_user(processing_result)
+        references = []
+        review_score = None
+        retry_count = 0
 
     return TicketResponse(
         ticket_id=ticket.get("ticket_id", ""),
         content=content,
+        service_type=ticket.get("service_type"),
+        key_materials=ticket.get("key_materials") or {},
         category=ticket.get("category"),
         priority=ticket.get("priority"),
         processing_result=processing_result,
-        references=_parse_references(ticket),
-        review_score=ticket.get("review_score"),
-        retry_count=ticket.get("retry_count", 0),
+        references=references,
+        review_score=review_score,
+        retry_count=retry_count,
         status=ticket.get("status", "received"),
         error=ticket.get("error"),
+        satisfied=ticket.get("satisfied"),
         created_at=ticket.get("created_at", datetime.now()),
     )
 
@@ -376,6 +385,8 @@ async def create_ticket(body: TicketCreate, request: Request) -> dict:
         "ticket_id": ticket_id,
         "content": intent["content"],
         "user_id": effective_user_id,
+        "service_type": body.service_type,
+        "key_materials": body.key_materials,
         "category": intent.get("category"),
         "priority": intent.get("priority"),
         "status": state["status"],
@@ -423,6 +434,8 @@ async def create_batch_tickets(body: BatchTicketCreate, request: Request) -> dic
             "ticket_id": ticket_id,
             "content": ticket.content,
             "user_id": effective_user_id,
+            "service_type": ticket.service_type,
+            "key_materials": ticket.key_materials,
             "status": state["status"],
             "created_at": datetime.now().isoformat(),
         }
@@ -1162,6 +1175,7 @@ async def submit_feedback(
     from src.multi_agent_system.core.logging import generate_trace_id
 
     satisfied = body.get("satisfied", False)
+    reason = str(body.get("reason") or "").strip()
     app = request.app
     db_manager = app.state.db_manager
     db_tool = app.state.db_tool
@@ -1174,6 +1188,12 @@ async def submit_feedback(
     assert_ticket_access(ticket, request)
     if Settings().auth_enabled and get_session_role(request) != "user":
         raise HTTPException(status_code=403, detail="仅工单所属用户可提交满意度反馈")
+    if ticket.get("satisfied") is not None:
+        raise HTTPException(status_code=409, detail="该工单已提交过最终反馈")
+    if ticket.get("status") != "completed":
+        raise HTTPException(status_code=409, detail="仅已完成工单可提交最终反馈")
+    if not satisfied and not reason:
+        raise HTTPException(status_code=422, detail="不满意反馈必须填写申诉原因")
 
     collector = EvaluationCollector(db_manager=db_manager)
 
@@ -1184,7 +1204,7 @@ async def submit_feedback(
 
     # 不满意 + 工单已完成 -> 自动转人工审核
     if not satisfied:
-        ticket = await db_tool.get_ticket(ticket_id)
+        ticket = await db_manager.get_ticket(ticket_id) or ticket
         if ticket and ticket.get("status") == "completed":
             coordinator = getattr(app.state, "coordinator", None)
             ai_suggestion = None
@@ -1193,7 +1213,7 @@ async def submit_feedback(
                     ai_suggestion = await coordinator.suggest_decision(
                         ticket_id,
                         "user_request",
-                        "用户反馈不满意",
+                        reason,
                         ticket.get("processing_result"),
                         ticket.get("review_score"),
                     )
@@ -1205,7 +1225,7 @@ async def submit_feedback(
                 "review_id": review_id,
                 "ticket_id": ticket_id,
                 "trigger_type": "user_request",
-                "trigger_reason": "用户反馈不满意",
+                "trigger_reason": reason,
                 "ai_suggestion": ai_suggestion,
                 "created_at": datetime.now().isoformat(),
             })

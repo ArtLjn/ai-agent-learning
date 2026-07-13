@@ -825,7 +825,7 @@ def test_feedback_dissatisfied_creates_user_request_review(
     ):
         resp = client.post(
             "/api/tickets/TK-FB2/feedback",
-            json={"satisfied": False},
+            json={"satisfied": False, "reason": "处理结果没有解决员工服务请求"},
         )
     assert resp.status_code == 200
     pending = app.state._portal.call(

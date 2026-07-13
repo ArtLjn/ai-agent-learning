@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Loader2, Lock, User, UserCircle, Mail, Save, KeyRound, ShieldCheck } from 'lucide-react'
+import { BriefcaseBusiness, Building2, Loader2, Lock, User, UserCircle, Mail, Save, KeyRound, ShieldCheck } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -23,6 +23,8 @@ export function Profile() {
   const [loadingProfile, setLoadingProfile] = useState(true)
   const [nickname, setNickname] = useState('')
   const [contact, setContact] = useState('')
+  const [department, setDepartment] = useState('')
+  const [position, setPosition] = useState('')
   const [preferred, setPreferred] = useState<TicketCategory[]>([])
   const [savingProfile, setSavingProfile] = useState(false)
 
@@ -42,6 +44,8 @@ export function Profile() {
         setProfile(data)
         setNickname(data.nickname ?? '')
         setContact(data.contact ?? '')
+        setDepartment(data.department ?? '')
+        setPosition(data.position ?? '')
         setPreferred(data.preferred_categories ?? [])
       } catch (err) {
         if (!cancelled) {
@@ -70,11 +74,15 @@ export function Profile() {
       const updated = await api.updateMe({
         nickname: nickname.trim() || undefined,
         contact: contact.trim() || undefined,
+        department: department.trim() || undefined,
+        position: position.trim() || undefined,
         preferred_categories: preferred,
       })
       setProfile(updated)
       setNickname(updated.nickname ?? '')
       setContact(updated.contact ?? '')
+      setDepartment(updated.department ?? '')
+      setPosition(updated.position ?? '')
       setPreferred(updated.preferred_categories ?? [])
       toast.success('已保存', '个人资料更新成功')
     } catch (err) {
@@ -231,6 +239,46 @@ export function Profile() {
                     placeholder="邮箱或手机号（可选）"
                     className="pl-9"
                     maxLength={128}
+                    disabled={isDemoAdmin}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label htmlFor="profile-department" className="text-sm font-medium text-foreground">
+                  部门
+                </label>
+                <div className="relative">
+                  <Building2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="profile-department"
+                    type="text"
+                    value={department}
+                    onChange={(e) => setDepartment(e.target.value)}
+                    placeholder="例如：研发中心"
+                    className="pl-9"
+                    maxLength={64}
+                    disabled={isDemoAdmin}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="profile-position" className="text-sm font-medium text-foreground">
+                  岗位
+                </label>
+                <div className="relative">
+                  <BriefcaseBusiness className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <Input
+                    id="profile-position"
+                    type="text"
+                    value={position}
+                    onChange={(e) => setPosition(e.target.value)}
+                    placeholder="例如：后端工程师"
+                    className="pl-9"
+                    maxLength={64}
                     disabled={isDemoAdmin}
                   />
                 </div>

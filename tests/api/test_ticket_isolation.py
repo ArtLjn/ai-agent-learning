@@ -159,6 +159,50 @@ class TestCreateTicketUserIdInjection:
         assert ticket["user_id"] == user["user_id"]
         assert ticket["user_id"] != "FAKE"
 
+    def test_create_structured_employee_ticket_persists_service_metadata(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """员工提单包含服务类型和关键材料元数据，并由后端保存。"""
+        user = _register(client, "alice")
+
+        resp = client.post(
+            "/api/tickets",
+            json={
+                "service_type": "account_access",
+                "content": "我无法登录企业邮箱，请协助恢复账号访问。",
+                "key_materials": {
+                    "system": "企业邮箱",
+                    "account": "alice@example.com",
+                },
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        ticket = client.portal.call(
+            app.state.db_manager.get_ticket, resp.json()["ticket_id"]
+        )
+        assert ticket["user_id"] == user["user_id"]
+        assert ticket["service_type"] == "account_access"
+        assert ticket["key_materials"] == {
+            "system": "企业邮箱",
+            "account": "alice@example.com",
+        }
+
+    def test_create_rejects_blank_problem_description(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """空问题描述直接拒绝，且不创建工单。"""
+        _register(client, "alice")
+
+        resp = client.post(
+            "/api/tickets",
+            json={"service_type": "account_access", "content": "   "},
+        )
+
+        assert resp.status_code == 422
+        tickets = client.portal.call(app.state.db_manager.list_tickets)
+        assert tickets == []
+
 
 class TestListTicketsIsolation:
     """GET /tickets 列表接口的 user 隔离。"""
@@ -325,6 +369,8 @@ class TestTicketDetailIsolation:
         assert "相似度" not in result
         assert "分类:" not in result
         assert "需要人工确认" not in result
+        assert body["review_score"] is None
+        assert body["references"] == []
 
     def test_admin_detail_keeps_internal_processing_result(
         self, client: TestClient, app: FastAPI
@@ -432,6 +478,54 @@ class TestMessagesAndFeedbackIsolation:
             json={"satisfied": False},
         )
         assert resp.status_code == 403
+
+    def test_completed_ticket_accepts_one_satisfied_feedback(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """completed 工单允许所属员工提交一次满意反馈。"""
+        alice = _register(client, "alice")
+        _seed_ticket(app, "TK-feedback-satisfied", alice["user_id"], status="completed")
+
+        resp = client.post(
+            "/api/tickets/TK-feedback-satisfied/feedback",
+            json={"satisfied": True},
+        )
+        duplicate = client.post(
+            "/api/tickets/TK-feedback-satisfied/feedback",
+            json={"satisfied": True},
+        )
+
+        assert resp.status_code == 200, resp.text
+        assert duplicate.status_code == 409
+        ticket = client.portal.call(
+            app.state.db_manager.get_ticket, "TK-feedback-satisfied"
+        )
+        assert ticket["satisfied"] == 1
+
+    def test_dissatisfied_feedback_requires_reason_and_creates_user_request_review(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """不满意反馈必须带原因，并创建 user_request 人工复核。"""
+        alice = _register(client, "alice")
+        _seed_ticket(app, "TK-feedback-appeal", alice["user_id"], status="completed")
+
+        missing_reason = client.post(
+            "/api/tickets/TK-feedback-appeal/feedback",
+            json={"satisfied": False},
+        )
+        resp = client.post(
+            "/api/tickets/TK-feedback-appeal/feedback",
+            json={"satisfied": False, "reason": "处理建议无法解决企业邮箱登录问题"},
+        )
+
+        assert missing_reason.status_code == 422
+        assert resp.status_code == 200, resp.text
+        review = client.portal.call(
+            app.state.db_manager.get_pending_review_by_ticket, "TK-feedback-appeal"
+        )
+        assert review is not None
+        assert review["trigger_type"] == "user_request"
+        assert "企业邮箱登录问题" in review["trigger_reason"]
 
 
 class TestDemoModeBypass:
