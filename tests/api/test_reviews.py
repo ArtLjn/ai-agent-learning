@@ -1,6 +1,7 @@
 """人工审核工作台 API 端点测试。"""
 
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -344,6 +345,41 @@ def test_list_review_queue_priority_order(app: FastAPI, client: TestClient) -> N
     assert priorities.index("P0") < priorities.index("P3")
 
 
+def test_list_review_queue_filters_by_ticket_status(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    """服务台待办队列支持按工单状态过滤。"""
+    _seed_ticket(app, "TK-PENDING", status="pending_human_review")
+    _seed_review(app, "HR-PENDING", "TK-PENDING")
+    _seed_ticket(app, "TK-WAITING", status="waiting_user_input")
+    _seed_review(app, "HR-WAITING", "TK-WAITING")
+
+    resp = client.get("/api/reviews/queue?status=waiting_user_input")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["queue"][0]["ticket_id"] == "TK-WAITING"
+    assert body["queue"][0]["status"] == "waiting_user_input"
+
+
+def test_list_review_queue_sorts_by_latest_update(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    """服务台待办队列按最新更新时间倒序返回。"""
+    _seed_ticket(app, "TK-OLD", priority="P0")
+    _seed_review(app, "HR-OLD", "TK-OLD", created_at="2026-06-27T09:00:00")
+    _seed_ticket(app, "TK-NEW", priority="P3")
+    _seed_review(app, "HR-NEW", "TK-NEW", created_at="2026-06-27T12:00:00")
+
+    resp = client.get("/api/reviews/queue")
+
+    assert resp.status_code == 200
+    assert [item["ticket_id"] for item in resp.json()["queue"]] == ["TK-NEW", "TK-OLD"]
+
+
 # ============================================================
 # 审核详情
 # ============================================================
@@ -359,6 +395,18 @@ def test_get_review_detail_returns_context(app: FastAPI, client: TestClient) -> 
     """详情接口返回完整审核上下文。"""
     _seed_ticket(app, "TK-D1")
     _seed_review(app, "HR-D1", "TK-D1")
+    _run(
+        client,
+        app.state.db_manager.create_ticket_message,
+        {
+            "message_id": "TM-D1",
+            "ticket_id": "TK-D1",
+            "sender_type": "reviewer",
+            "sender_id": "reviewer-001",
+            "content": "请补充订单号",
+            "metadata": {"source": "request_info"},
+        },
+    )
 
     resp = client.get("/api/reviews/TK-D1")
     assert resp.status_code == 200
@@ -368,6 +416,7 @@ def test_get_review_detail_returns_context(app: FastAPI, client: TestClient) -> 
     assert body["current_review"]["review_id"] == "HR-D1"
     assert body["current_review"]["ai_suggestion"]["recommended_decision"] == "reprocess"
     assert body["history_reviews"] == []
+    assert body["messages"][0]["content"] == "请补充订单号"
 
 
 # ============================================================
@@ -584,6 +633,160 @@ def test_review_stats_with_data(app: FastAPI, client: TestClient) -> None:
     assert body["decision_distribution"].get("reprocess") == 1
     # ai_adoption_rate: HR-S2 decision=reprocess, recommended=reprocess -> adopted
     assert body["ai_adoption_rate"] == 1.0
+
+
+def test_analytics_includes_service_desk_status_and_feedback(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    """服务台运营分析包含状态汇总、AI 采纳和员工反馈钻取。"""
+    _seed_ticket(app, "TK-A1", status="received", satisfied=True)
+    _seed_ticket(app, "TK-A2", status="waiting_user_input", satisfied=False)
+    _seed_review(
+        app,
+        "HR-A2",
+        "TK-A2",
+        status="decided",
+        decision="reprocess",
+        reviewer_id="r1",
+        decided_at="2026-06-27T11:00:00",
+    )
+
+    resp = client.get("/api/analytics")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["service_desk"]["status_summary"]["received"] == 1
+    assert body["service_desk"]["status_summary"]["waiting_user_input"] == 1
+    assert body["service_desk"]["review_quality"]["ai_adoption_rate"] == 1.0
+    assert body["service_desk"]["feedback_summary"]["dissatisfied"] == 1
+    assert body["service_desk"]["dissatisfied_tickets"][0]["ticket_id"] == "TK-A2"
+    assert body["service_desk"]["dissatisfied_tickets"][0]["trigger_type"] == "escalate"
+
+
+class FakeRagClient:
+    """知识维护接口测试用 rag-service 伪客户端。"""
+
+    def __init__(self) -> None:
+        self.documents: list[dict] = []
+        self.fail_ingest = False
+
+    async def ingest_text(self, text: str, collection: str, source: str | None = None, category: str | None = None) -> dict:
+        if self.fail_ingest:
+            from src.multi_agent_system.tools.rag_client import RagServiceUnavailable
+
+            raise RagServiceUnavailable("ingest failed")
+        doc_id = f"doc-{len(self.documents) + 1}"
+        result = {
+            "doc_id": doc_id,
+            "collection": collection,
+            "source": source,
+            "category": category,
+            "chunk_count": 3,
+            "action": "created",
+        }
+        self.documents.append(result)
+        return result
+
+    async def ingest_file(self, file_bytes: bytes, filename: str, collection: str, source: str | None = None, category: str | None = None) -> dict:
+        return await self.ingest_text(
+            text=file_bytes.decode("utf-8", errors="ignore"),
+            collection=collection,
+            source=source or filename,
+            category=category,
+        )
+
+    async def list_documents(self, collection: str, page: int = 1, page_size: int = 50) -> dict:
+        return {
+            "total": len(self.documents),
+            "page": page,
+            "page_size": page_size,
+            "documents": self.documents[(page - 1) * page_size:page * page_size],
+        }
+
+    async def delete_document(self, collection: str, doc_id: str) -> dict:
+        self.documents = [doc for doc in self.documents if doc["doc_id"] != doc_id]
+        return {"doc_id": doc_id, "collection": collection, "metadata_removed": True, "points_removed": 1}
+
+
+def _enable_knowledge(app: FastAPI, rag_client: FakeRagClient) -> None:
+    app.state.rag_client = rag_client
+    app.state.settings = SimpleNamespace(rag_service_collection="ticket_knowledge")
+
+
+def test_knowledge_upload_records_published_status(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    """知识维护上传成功后展示发布状态、分块数、collection 和版本。"""
+    _enable_knowledge(app, FakeRagClient())
+
+    resp = client.post(
+        "/api/knowledge",
+        json={"title": "退款处理手册", "category": "billing", "content": "退款处理步骤"},
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "published"
+    assert body["chunk_count"] == 3
+    assert body["collection"] == "ticket_knowledge"
+    assert body["version"] == 1
+
+    listing = client.get("/api/knowledge").json()
+    assert listing["documents"][0]["status"] == "published"
+    assert listing["documents"][0]["version"] == 1
+
+
+def test_knowledge_upload_records_failed_status(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    """rag-service 入库失败时保留失败状态，便于知识维护员处理。"""
+    rag_client = FakeRagClient()
+    rag_client.fail_ingest = True
+    _enable_knowledge(app, rag_client)
+
+    resp = client.post(
+        "/api/knowledge",
+        json={"title": "失败文档", "category": "technical", "content": "无法入库"},
+    )
+
+    assert resp.status_code == 503
+    listing = client.get("/api/knowledge").json()
+    assert listing["total"] == 1
+    assert listing["documents"][0]["status"] == "failed"
+    assert listing["documents"][0]["title"] == "失败文档"
+
+
+def test_knowledge_rollback_creates_new_active_version(
+    app: FastAPI,
+    client: TestClient,
+) -> None:
+    """回滚到历史版本会创建新的 active 版本并保留版本历史。"""
+    _enable_knowledge(app, FakeRagClient())
+    created = client.post(
+        "/api/knowledge",
+        json={"title": "权限手册", "category": "technical", "content": "版本一"},
+    ).json()
+    doc_id = created["doc_id"]
+    updated = client.patch(
+        f"/api/knowledge/{doc_id}",
+        json={"title": "权限手册", "category": "technical", "content": "版本二"},
+    )
+    assert updated.status_code == 200
+
+    rollback = client.post(f"/api/knowledge/{doc_id}/rollback", json={"version": 1})
+
+    assert rollback.status_code == 200
+    body = rollback.json()
+    assert body["status"] == "published"
+    assert body["version"] == 3
+    assert body["rolled_back_from_version"] == 1
+
+    versions = client.get(f"/api/knowledge/{doc_id}/versions").json()
+    assert [item["version"] for item in versions["versions"]] == [1, 2, 3]
+    assert versions["versions"][-1]["is_active"] is True
 
 
 # ============================================================

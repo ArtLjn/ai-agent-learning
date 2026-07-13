@@ -20,19 +20,21 @@ export function ReviewWorkbench() {
   const [reviewerId, setReviewerId] = useState<string>(DEFAULT_REVIEWER_ID)
 
   // 筛选器
+  const [statusFilter, setStatusFilter] = useState<string>('')
   const [triggerFilter, setTriggerFilter] = useState<string>('')
   const [categoryFilter, setCategoryFilter] = useState<string>('')
   const [priorityFilter, setPriorityFilter] = useState<string>('')
 
   const params = useMemo(
     () => ({
+      status: statusFilter || undefined,
       trigger_type: triggerFilter || undefined,
       category: categoryFilter || undefined,
       priority: priorityFilter || undefined,
       limit: 50,
       offset: 0,
     }),
-    [triggerFilter, categoryFilter, priorityFilter],
+    [statusFilter, triggerFilter, categoryFilter, priorityFilter],
   )
 
   const queueQuery = useReviewQueue(params)
@@ -134,6 +136,16 @@ export function ReviewWorkbench() {
           {/* 筛选器 */}
           <div className="rounded-lg border border-border bg-card p-3 space-y-2">
             <p className="text-[10px] uppercase tracking-wide text-muted-foreground">筛选器</p>
+            <Select value={statusFilter} onValueChange={(v) => setStatusFilter(v === 'all' ? '' : (v ?? ''))}>
+              <SelectTrigger className="h-8 text-xs">
+                <SelectValue placeholder="全部状态" />
+              </SelectTrigger>
+              <SelectContent className="bg-popover border-border">
+                <SelectItem value="all">全部状态</SelectItem>
+                <SelectItem value="pending_human_review">待人工审核</SelectItem>
+                <SelectItem value="waiting_user_input">待员工补充</SelectItem>
+              </SelectContent>
+            </Select>
             <Select value={triggerFilter} onValueChange={(v) => setTriggerFilter(v === 'all' ? '' : (v ?? ''))}>
               <SelectTrigger className="h-8 text-xs">
                 <SelectValue placeholder="全部触发" />

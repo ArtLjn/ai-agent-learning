@@ -127,6 +127,45 @@ export function useUploadKnowledgeFile() {
   })
 }
 
+export function useUpdateKnowledgeText() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      docId,
+      data,
+    }: {
+      docId: string
+      data: { title?: string; content: string; category?: string }
+    }) => api.updateKnowledgeText(docId, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeVersions'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeEvaluation'] })
+    },
+  })
+}
+
+export function useKnowledgeVersions(docId: string | null) {
+  return useQuery({
+    queryKey: ['knowledgeVersions', docId],
+    queryFn: () => api.getKnowledgeVersions(docId!),
+    enabled: !!docId,
+  })
+}
+
+export function useRollbackKnowledge() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ docId, version }: { docId: string; version: number }) =>
+      api.rollbackKnowledge(docId, version),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['knowledge'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeVersions'] })
+      qc.invalidateQueries({ queryKey: ['knowledgeEvaluation'] })
+    },
+  })
+}
+
 export function useDeleteKnowledge() {
   const qc = useQueryClient()
   return useMutation({

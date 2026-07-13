@@ -208,6 +208,26 @@ export interface Analytics {
     satisfaction_rate: number
     total_feedback: number
   }
+  service_desk?: {
+    status_summary: Record<TicketStatus | string, number>
+    review_quality: ReviewStats
+    feedback_summary: {
+      satisfied: number
+      dissatisfied: number
+      total: number
+      satisfaction_rate: number
+    }
+    dissatisfied_tickets: Array<{
+      ticket_id: string
+      category: string | null
+      priority: string | null
+      status: string
+      trigger_type: string | null
+      trigger_reason: string | null
+      review_id: string | null
+      created_at: string
+    }>
+  }
 }
 
 export interface DailyStat {
@@ -225,15 +245,40 @@ export interface KnowledgeTextUploadRequest {
   category?: string
 }
 
+export type KnowledgeStatus = 'pending' | 'ingesting' | 'published' | 'failed' | 'rolled_back'
+
 export interface KnowledgeDocument {
   doc_id: string
+  title?: string
   collection: string
   source: string
   category: string
+  status?: KnowledgeStatus | string
+  version?: number
   chunk_count: number
   content_hash?: string
   extra?: Record<string, unknown>
   ingested_at: string
+}
+
+export interface KnowledgeVersion {
+  doc_id: string
+  version: number
+  title: string
+  category: string | null
+  content: string | null
+  collection: string
+  status: KnowledgeStatus | string
+  chunk_count: number
+  rag_doc_id: string | null
+  is_active: boolean
+  metadata: Record<string, unknown>
+  created_at: string
+}
+
+export interface KnowledgeVersionListResponse {
+  doc_id: string
+  versions: KnowledgeVersion[]
 }
 
 export interface KnowledgeListResponse {
@@ -379,6 +424,7 @@ export interface ReviewQueueItem {
   content_preview: string
   category: string | null
   priority: string | null
+  status?: string | null
   ai_suggestion: AISuggestion | null
   waiting_seconds: number
   created_at: string
@@ -395,6 +441,7 @@ export interface ReviewDetail {
   retry_count: number
   current_review: HumanReview | null
   history_reviews: HumanReview[]
+  messages?: TicketMessage[]
   trace_summary: {
     trace_id: string
     node_count: number
@@ -417,6 +464,7 @@ export interface ReviewStats {
     rewrite: number
     reprocess: number
     reject: number
+    request_info?: number
   }
   avg_decision_seconds: number
   ai_adoption_rate: number  // 0-1

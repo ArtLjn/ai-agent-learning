@@ -632,26 +632,61 @@ async def list_knowledge(
     page_size: int = Query(default=50, ge=1, le=100, description="每页文档数"),
     _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
-    """列出 rag-service 中 ticket_knowledge collection 的文档元数据。
+    """列出服务台知识维护文档，合并本地发布状态与 rag-service 元数据。
 
     响应字段：{total, page, page_size, documents[]}。
-    documents 各项含 doc_id/source/category/chunk_count/ingested_at 等。
+    documents 各项含 doc_id/source/category/chunk_count/status/version/ingested_at 等。
     """
     rag_client = request.app.state.rag_client
     settings = request.app.state.settings
+    db_manager = request.app.state.db_manager
+    collection = settings.rag_service_collection
+
+    local = await db_manager.list_knowledge_documents(
+        collection=collection,
+        page=page,
+        page_size=page_size,
+    )
 
     if rag_client is None:
+        if local["total"] > 0:
+            return local
         raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
 
     try:
-        return await rag_client.list_documents(
-            collection=settings.rag_service_collection,
+        remote = await rag_client.list_documents(
+            collection=collection,
             page=page,
             page_size=page_size,
         )
     except RagServiceUnavailable as e:
         logger.warning(f"rag-service list_documents 失败: {e}")
+        if local["total"] > 0:
+            return local
         raise HTTPException(status_code=503, detail=str(e)) from e
+
+    local_docs = local.get("documents") or []
+    local_ids = {doc.get("doc_id") for doc in local_docs}
+    merged = list(local_docs)
+    for doc in remote.get("documents") or []:
+        if doc.get("doc_id") in local_ids:
+            continue
+        extra = dict(doc.get("extra") or {})
+        extra.setdefault("status", "published")
+        extra.setdefault("version", 1)
+        merged.append({
+            **doc,
+            "title": doc.get("title") or doc.get("source") or doc.get("doc_id"),
+            "status": "published",
+            "version": 1,
+            "extra": extra,
+        })
+    return {
+        "total": max(int(remote.get("total") or 0), len(merged), int(local.get("total") or 0)),
+        "page": page,
+        "page_size": page_size,
+        "documents": merged[:page_size],
+    }
 
 
 @router.post("/knowledge", response_model=dict)
@@ -659,7 +694,7 @@ async def upload_knowledge(
     request: Request,
     _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
-    """上传文档到 rag-service（纯代理，支持 text 与 file 两种模式）。
+    """上传知识文档并记录服务台发布状态，支持 text 与 file 两种模式。
 
     按 content-type 分发：
     - application/json → text 模式：body 含 title/content/category，调 ingest_text
@@ -669,6 +704,7 @@ async def upload_knowledge(
     """
     rag_client = request.app.state.rag_client
     settings = request.app.state.settings
+    db_manager = request.app.state.db_manager
     collection = settings.rag_service_collection
 
     if rag_client is None:
@@ -697,10 +733,60 @@ async def upload_knowledge(
                 category=category,
             )
         except RagServiceUnavailable as e:
+            failed_doc_id = f"KD-{generate_trace_id()}"
+            await db_manager.upsert_knowledge_document(
+                doc_id=failed_doc_id,
+                title=title,
+                category=category,
+                source=f"admin-upload:{title}",
+                collection=collection,
+                status="failed",
+                content=text,
+                chunk_count=0,
+                version=1,
+                metadata={"error": str(e), "status": "failed"},
+            )
+            await db_manager.create_knowledge_version(
+                doc_id=failed_doc_id,
+                version=1,
+                title=title,
+                category=category,
+                content=text,
+                collection=collection,
+                status="failed",
+                chunk_count=0,
+                metadata={"error": str(e)},
+            )
             logger.warning(f"rag-service ingest_text 失败: {e}")
             raise HTTPException(status_code=503, detail=str(e)) from e
 
-        return {"status": "ok", **result}
+        doc_id = str(result.get("doc_id") or f"KD-{generate_trace_id()}")
+        metadata = {"rag_result": result, "status": "published", "version": 1}
+        record = await db_manager.upsert_knowledge_document(
+            doc_id=doc_id,
+            title=title,
+            category=category,
+            source=result.get("source") or f"admin-upload:{title}",
+            collection=result.get("collection") or collection,
+            status="published",
+            content=text,
+            chunk_count=int(result.get("chunk_count") or 0),
+            version=1,
+            metadata=metadata,
+        )
+        await db_manager.create_knowledge_version(
+            doc_id=doc_id,
+            version=1,
+            title=title,
+            category=category,
+            content=text,
+            collection=result.get("collection") or collection,
+            status="published",
+            chunk_count=int(result.get("chunk_count") or 0),
+            rag_doc_id=doc_id,
+            metadata=metadata,
+        )
+        return {"status": "published", "action": result.get("action"), **record}
 
     if content_type.startswith("multipart/form-data"):
         try:
@@ -727,15 +813,224 @@ async def upload_knowledge(
                 category=category,
             )
         except RagServiceUnavailable as e:
+            failed_doc_id = f"KD-{generate_trace_id()}"
+            await db_manager.upsert_knowledge_document(
+                doc_id=failed_doc_id,
+                title=str(title),
+                category=str(category),
+                source=str(title or filename),
+                collection=collection,
+                status="failed",
+                content=None,
+                chunk_count=0,
+                version=1,
+                metadata={"error": str(e), "filename": filename, "status": "failed"},
+            )
+            await db_manager.create_knowledge_version(
+                doc_id=failed_doc_id,
+                version=1,
+                title=str(title),
+                category=str(category),
+                content=None,
+                collection=collection,
+                status="failed",
+                metadata={"error": str(e), "filename": filename},
+            )
             logger.warning(f"rag-service ingest_file 失败: {e}")
             raise HTTPException(status_code=503, detail=str(e)) from e
 
-        return {"status": "ok", **result}
+        doc_id = str(result.get("doc_id") or f"KD-{generate_trace_id()}")
+        metadata = {"rag_result": result, "filename": filename, "status": "published", "version": 1}
+        record = await db_manager.upsert_knowledge_document(
+            doc_id=doc_id,
+            title=str(title),
+            category=str(category),
+            source=result.get("source") or str(title or filename),
+            collection=result.get("collection") or collection,
+            status="published",
+            content=None,
+            chunk_count=int(result.get("chunk_count") or 0),
+            version=1,
+            metadata=metadata,
+        )
+        await db_manager.create_knowledge_version(
+            doc_id=doc_id,
+            version=1,
+            title=str(title),
+            category=str(category),
+            content=None,
+            collection=result.get("collection") or collection,
+            status="published",
+            chunk_count=int(result.get("chunk_count") or 0),
+            rag_doc_id=doc_id,
+            metadata=metadata,
+        )
+        return {"status": "published", "action": result.get("action"), **record}
 
     raise HTTPException(
         status_code=400,
         detail=f"不支持的 content-type: {content_type}（仅 application/json 或 multipart/form-data）",
     )
+
+
+@router.patch("/knowledge/{doc_id}", response_model=dict)
+async def update_knowledge(
+    doc_id: str,
+    body: dict[str, Any],
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
+    """更新知识内容并创建新的发布版本。"""
+    rag_client = request.app.state.rag_client
+    settings = request.app.state.settings
+    db_manager = request.app.state.db_manager
+    collection = settings.rag_service_collection
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
+
+    existing = await db_manager.get_knowledge_document(doc_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"知识文档 {doc_id} 不存在")
+
+    content = str(body.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="content 为必填字段")
+    title = str(body.get("title") or existing.get("title") or existing.get("source") or doc_id)
+    category = str(body.get("category") or existing.get("category") or "default")
+    version = await db_manager.next_knowledge_version(doc_id)
+
+    try:
+        result = await rag_client.ingest_text(
+            text=content,
+            collection=collection,
+            source=f"admin-update:{title}",
+            category=category,
+        )
+    except RagServiceUnavailable as e:
+        logger.warning(f"rag-service update ingest_text 失败: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    metadata = {
+        "rag_result": result,
+        "rag_doc_id": result.get("doc_id"),
+        "status": "published",
+        "version": version,
+    }
+    record = await db_manager.upsert_knowledge_document(
+        doc_id=doc_id,
+        title=title,
+        category=category,
+        source=existing.get("source") or f"admin-upload:{title}",
+        collection=result.get("collection") or collection,
+        status="published",
+        content=content,
+        chunk_count=int(result.get("chunk_count") or 0),
+        version=version,
+        metadata=metadata,
+    )
+    await db_manager.create_knowledge_version(
+        doc_id=doc_id,
+        version=version,
+        title=title,
+        category=category,
+        content=content,
+        collection=result.get("collection") or collection,
+        status="published",
+        chunk_count=int(result.get("chunk_count") or 0),
+        rag_doc_id=result.get("doc_id"),
+        metadata=metadata,
+    )
+    return {"status": "published", "action": result.get("action"), **record}
+
+
+@router.get("/knowledge/{doc_id}/versions", response_model=dict)
+async def list_knowledge_versions(
+    doc_id: str,
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
+    """查看知识文档版本历史。"""
+    versions = await request.app.state.db_manager.list_knowledge_versions(doc_id)
+    if not versions:
+        raise HTTPException(status_code=404, detail=f"知识文档 {doc_id} 不存在")
+    return {"doc_id": doc_id, "versions": versions}
+
+
+@router.post("/knowledge/{doc_id}/rollback", response_model=dict)
+async def rollback_knowledge(
+    doc_id: str,
+    body: dict[str, Any],
+    request: Request,
+    _role_check: dict = Depends(require_role("admin")),
+) -> dict:
+    """回滚到指定历史版本，并创建新的 active 版本。"""
+    rag_client = request.app.state.rag_client
+    settings = request.app.state.settings
+    db_manager = request.app.state.db_manager
+    collection = settings.rag_service_collection
+
+    if rag_client is None:
+        raise HTTPException(status_code=503, detail="rag-service 客户端未初始化")
+    target_version = int(body.get("version") or 0)
+    target = await db_manager.get_knowledge_version(doc_id, target_version)
+    if target is None:
+        raise HTTPException(status_code=404, detail=f"知识版本 {target_version} 不存在")
+    content = str(target.get("content") or "").strip()
+    if not content:
+        raise HTTPException(status_code=409, detail="目标版本没有可回滚的文本内容")
+
+    new_version = await db_manager.next_knowledge_version(doc_id)
+    title = str(target.get("title") or doc_id)
+    category = target.get("category")
+    try:
+        result = await rag_client.ingest_text(
+            text=content,
+            collection=collection,
+            source=f"rollback:{title}:v{target_version}",
+            category=category,
+        )
+    except RagServiceUnavailable as e:
+        logger.warning(f"rag-service rollback ingest_text 失败: {e}")
+        raise HTTPException(status_code=503, detail=str(e)) from e
+
+    metadata = {
+        "rag_result": result,
+        "rag_doc_id": result.get("doc_id"),
+        "rolled_back_from_version": target_version,
+        "status": "published",
+        "version": new_version,
+    }
+    record = await db_manager.upsert_knowledge_document(
+        doc_id=doc_id,
+        title=title,
+        category=category,
+        source=f"rollback:{title}:v{target_version}",
+        collection=result.get("collection") or collection,
+        status="published",
+        content=content,
+        chunk_count=int(result.get("chunk_count") or 0),
+        version=new_version,
+        metadata=metadata,
+    )
+    await db_manager.create_knowledge_version(
+        doc_id=doc_id,
+        version=new_version,
+        title=title,
+        category=category,
+        content=content,
+        collection=result.get("collection") or collection,
+        status="published",
+        chunk_count=int(result.get("chunk_count") or 0),
+        rag_doc_id=result.get("doc_id"),
+        metadata=metadata,
+    )
+    return {
+        "status": "published",
+        "rolled_back_from_version": target_version,
+        "action": result.get("action"),
+        **record,
+    }
 
 
 @router.delete("/knowledge/{doc_id}", response_model=dict)
@@ -960,6 +1255,7 @@ def _parse_ai_suggestion(raw: Any) -> dict | None:
 @router.get("/reviews/queue", response_model=dict)
 async def list_review_queue(
     request: Request,
+    status: str | None = Query(default=None),
     trigger_type: str | None = Query(default=None),
     category: str | None = Query(default=None),
     priority: str | None = Query(default=None),
@@ -967,9 +1263,10 @@ async def list_review_queue(
     offset: int = Query(default=0, ge=0),
     _role_check: dict = Depends(require_role("admin")),
 ) -> dict:
-    """查询待人工审核队列，按优先级 + 等待时长排序。"""
+    """查询服务台待办队列，按最新待办更新时间倒序返回。"""
     db_manager = request.app.state.db_manager
     rows = await db_manager.list_pending_reviews_with_tickets(
+        status=status,
         trigger_type=trigger_type,
         category=category,
         priority=priority,
@@ -977,6 +1274,7 @@ async def list_review_queue(
         offset=offset,
     )
     total = await db_manager.count_pending_reviews(
+        status=status,
         trigger_type=trigger_type,
         category=category,
         priority=priority,
@@ -1000,18 +1298,22 @@ async def list_review_queue(
             "content_preview": content[:100],
             "category": row.get("ticket_category"),
             "priority": row.get("ticket_priority"),
+            "status": row.get("ticket_status"),
             "ai_suggestion": _parse_ai_suggestion(row.get("ai_suggestion")),
             "waiting_seconds": waiting_seconds,
             "created_at": created_at_str,
+            "_updated_ts": created_at.timestamp(),
         })
 
-    # 兜底排序（DB 已排过，二次保险）
+    # 兜底排序（DB 已排过，二次保险）：最新待办优先，时间相同再看优先级。
     queue.sort(
         key=lambda r: (
+            -(r.get("_updated_ts") or 0),
             _PRIORITY_ORDER.get(r.get("priority") or "", 9),
-            -(r.get("waiting_seconds") or 0),
         )
     )
+    for item in queue:
+        item.pop("_updated_ts", None)
 
     return {"queue": queue, "total": total, "limit": limit, "offset": offset}
 
@@ -1041,6 +1343,7 @@ async def get_review_detail(
         raise HTTPException(status_code=404, detail=f"工单 {ticket_id} 不存在")
 
     reviews = await db_manager.list_reviews_by_ticket(ticket_id)
+    messages = await db_manager.list_ticket_messages(ticket_id)
     current_review = next((r for r in reviews if r.get("status") == "pending"), None)
     history_reviews = [
         {
@@ -1085,6 +1388,7 @@ async def get_review_detail(
         "retry_count": ticket.get("retry_count", 0),
         "current_review": current_payload,
         "history_reviews": history_reviews,
+        "messages": messages,
         "trace_summary": trace_summary,
     }
 
@@ -1191,14 +1495,51 @@ async def get_analytics(request: Request) -> dict:
     db_manager = request.app.state.db_manager
     analytics_tool = request.app.state.analytics_tool
     collector = EvaluationCollector(db_manager=db_manager)
+    category_distribution = (
+        await analytics_tool.get_category_distribution()
+        if hasattr(analytics_tool, "get_category_distribution")
+        and asyncio.iscoroutinefunction(analytics_tool.get_category_distribution)
+        else await db_manager.get_category_distribution()
+    )
+    priority_distribution = (
+        await analytics_tool.get_priority_distribution()
+        if hasattr(analytics_tool, "get_priority_distribution")
+        and asyncio.iscoroutinefunction(analytics_tool.get_priority_distribution)
+        else await db_manager.get_priority_distribution()
+    )
+    resolution_stats = (
+        await analytics_tool.get_resolution_stats()
+        if hasattr(analytics_tool, "get_resolution_stats")
+        and asyncio.iscoroutinefunction(analytics_tool.get_resolution_stats)
+        else await db_manager.get_resolution_stats()
+    )
+    daily_stats = (
+        await analytics_tool.get_daily_stats()
+        if hasattr(analytics_tool, "get_daily_stats")
+        and asyncio.iscoroutinefunction(analytics_tool.get_daily_stats)
+        else []
+    )
+    review_quality = await db_manager.get_review_workbench_stats()
+    feedback = await db_manager.get_feedback_summary()
 
     return {
-        "category_distribution": await analytics_tool.get_category_distribution(),
-        "priority_distribution": await analytics_tool.get_priority_distribution(),
-        "resolution_stats": await analytics_tool.get_resolution_stats(),
-        "daily_stats": await analytics_tool.get_daily_stats(),
+        "category_distribution": category_distribution,
+        "priority_distribution": priority_distribution,
+        "resolution_stats": resolution_stats,
+        "daily_stats": daily_stats,
         "efficiency": await collector.get_efficiency_stats(),
         "evaluation": await collector.get_evaluation_summary(),
+        "service_desk": {
+            "status_summary": await db_manager.get_ticket_status_summary(),
+            "review_quality": review_quality,
+            "feedback_summary": {
+                "satisfied": feedback["satisfied"],
+                "dissatisfied": feedback["dissatisfied"],
+                "total": feedback["total"],
+                "satisfaction_rate": feedback["satisfaction_rate"],
+            },
+            "dissatisfied_tickets": feedback["dissatisfied_tickets"],
+        },
     }
 
 

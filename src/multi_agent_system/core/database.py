@@ -7,6 +7,7 @@
   原始 SQL + `?` 占位符写法（内部转命名占位符 + text()）
 """
 
+import hashlib
 import json
 import re
 from contextlib import asynccontextmanager
@@ -14,7 +15,7 @@ from datetime import date, datetime
 from typing import Any, AsyncGenerator
 
 from loguru import logger
-from sqlalchemy import case, func, or_, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.engine import Row
 from sqlalchemy.ext.asyncio import (
@@ -29,6 +30,8 @@ from src.multi_agent_system.models.db import (
     AuditLogORM,
     CheckpointORM,
     HumanReviewORM,
+    KnowledgeDocumentORM,
+    KnowledgeVersionORM,
     PatternORM,
     PromptVersionORM,
     SpanORM,
@@ -1393,17 +1396,11 @@ class DatabaseManager:
         trigger_type: str | None = None,
         category: str | None = None,
         priority: str | None = None,
+        status: str | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
-        """联表查询 pending 审核单 + 工单快照。"""
-        priority_order = case(
-            (TicketORM.priority == "P0", 0),
-            (TicketORM.priority == "P1", 1),
-            (TicketORM.priority == "P2", 2),
-            (TicketORM.priority == "P3", 3),
-            else_=9,
-        )
+        """联表查询 pending 审核单 + 工单快照，按最新待办更新时间倒序。"""
         async with self._session() as session:
             stmt = (
                 select(HumanReviewORM, TicketORM)
@@ -1416,7 +1413,9 @@ class DatabaseManager:
                 stmt = stmt.where(TicketORM.category == category)
             if priority:
                 stmt = stmt.where(TicketORM.priority == priority)
-            stmt = stmt.order_by(priority_order.asc(), HumanReviewORM.created_at.asc())
+            if status:
+                stmt = stmt.where(TicketORM.status == status)
+            stmt = stmt.order_by(HumanReviewORM.created_at.desc())
             stmt = stmt.limit(limit).offset(offset)
             rows = (await session.execute(stmt)).all()
             out = []
@@ -1425,6 +1424,7 @@ class DatabaseManager:
                 d["ticket_content"] = tk.content if tk else None
                 d["ticket_category"] = tk.category if tk else None
                 d["ticket_priority"] = tk.priority if tk else None
+                d["ticket_status"] = tk.status if tk else None
                 out.append(d)
             return out
 
@@ -1433,6 +1433,7 @@ class DatabaseManager:
         trigger_type: str | None = None,
         category: str | None = None,
         priority: str | None = None,
+        status: str | None = None,
     ) -> int:
         async with self._session() as session:
             stmt = (
@@ -1447,7 +1448,299 @@ class DatabaseManager:
                 stmt = stmt.where(TicketORM.category == category)
             if priority:
                 stmt = stmt.where(TicketORM.priority == priority)
+            if status:
+                stmt = stmt.where(TicketORM.status == status)
             return int((await session.execute(stmt)).scalar() or 0)
+
+    async def get_ticket_status_summary(self) -> dict[str, int]:
+        """按服务台运营口径统计关键工单状态。"""
+        statuses = [
+            "received",
+            "processing",
+            "waiting_user_input",
+            "pending_human_review",
+            "completed",
+            "failed",
+        ]
+        async with self._session() as session:
+            rows = (await session.execute(
+                select(TicketORM.status, func.count().label("cnt"))
+                .where(TicketORM.status.in_(statuses))
+                .group_by(TicketORM.status)
+            )).all()
+        summary = {status: 0 for status in statuses}
+        summary.update({r.status: int(r.cnt) for r in rows})
+        return summary
+
+    async def get_feedback_summary(self) -> dict[str, Any]:
+        """统计员工满意/不满意反馈，并给出不满意工单钻取数据。"""
+        async with self._session() as session:
+            satisfied = int((await session.execute(
+                select(func.count()).select_from(TicketORM)
+                .where(TicketORM.satisfied == 1)
+            )).scalar() or 0)
+            dissatisfied = int((await session.execute(
+                select(func.count()).select_from(TicketORM)
+                .where(TicketORM.satisfied == 0)
+            )).scalar() or 0)
+            rows = (await session.execute(
+                select(TicketORM, HumanReviewORM)
+                .outerjoin(HumanReviewORM, HumanReviewORM.ticket_id == TicketORM.ticket_id)
+                .where(TicketORM.satisfied == 0)
+                .order_by(TicketORM.created_at.desc(), HumanReviewORM.created_at.desc())
+                .limit(20)
+            )).all()
+
+        seen: set[str] = set()
+        dissatisfied_tickets: list[dict[str, Any]] = []
+        for ticket, review in rows:
+            if ticket.ticket_id in seen:
+                continue
+            seen.add(ticket.ticket_id)
+            dissatisfied_tickets.append({
+                "ticket_id": ticket.ticket_id,
+                "category": ticket.category,
+                "priority": ticket.priority,
+                "status": ticket.status,
+                "trigger_type": review.trigger_type if review else None,
+                "trigger_reason": review.trigger_reason if review else None,
+                "review_id": review.review_id if review else None,
+                "created_at": self._orm_to_dict(ticket).get("created_at"),
+            })
+
+        total = satisfied + dissatisfied
+        return {
+            "satisfied": satisfied,
+            "dissatisfied": dissatisfied,
+            "total": total,
+            "satisfaction_rate": round(satisfied / total, 4) if total else 0.0,
+            "dissatisfied_tickets": dissatisfied_tickets,
+        }
+
+    # ============================================================
+    # Knowledge Maintenance
+    # ============================================================
+
+    @staticmethod
+    def _knowledge_hash(content: str | None) -> str | None:
+        if content is None:
+            return None
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+    async def upsert_knowledge_document(
+        self,
+        *,
+        doc_id: str,
+        title: str,
+        category: str | None,
+        source: str | None,
+        collection: str,
+        status: str,
+        content: str | None,
+        chunk_count: int = 0,
+        version: int = 1,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.utcnow()
+        metadata_json = json.dumps(metadata or {}, ensure_ascii=False)
+        content_hash = self._knowledge_hash(content)
+        async with self._session() as session:
+            obj = await session.get(KnowledgeDocumentORM, doc_id)
+            if obj is None:
+                obj = KnowledgeDocumentORM(
+                    doc_id=doc_id,
+                    title=title,
+                    category=category,
+                    source=source,
+                    collection=collection,
+                    status=status,
+                    chunk_count=chunk_count,
+                    content_hash=content_hash,
+                    current_version=version,
+                    content=content,
+                    metadata_json=metadata_json,
+                    created_at=now,
+                    updated_at=now,
+                    published_at=now if status == "published" else None,
+                )
+                session.add(obj)
+            else:
+                obj.title = title
+                obj.category = category
+                obj.source = source
+                obj.collection = collection
+                obj.status = status
+                obj.chunk_count = chunk_count
+                obj.content_hash = content_hash
+                obj.current_version = version
+                obj.content = content
+                obj.metadata_json = metadata_json
+                obj.updated_at = now
+                if status == "published":
+                    obj.published_at = now
+            await session.commit()
+            await session.refresh(obj)
+            return self._format_knowledge_document(obj)
+
+    async def create_knowledge_version(
+        self,
+        *,
+        doc_id: str,
+        version: int,
+        title: str,
+        category: str | None,
+        content: str | None,
+        collection: str,
+        status: str,
+        chunk_count: int = 0,
+        rag_doc_id: str | None = None,
+        is_active: bool = True,
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        async with self._session() as session:
+            if is_active:
+                await session.execute(
+                    KnowledgeVersionORM.__table__.update()
+                    .where(KnowledgeVersionORM.doc_id == doc_id)
+                    .values(is_active=0)
+                )
+            obj = KnowledgeVersionORM(
+                version_id=f"{doc_id}-v{version}",
+                doc_id=doc_id,
+                version=version,
+                title=title,
+                category=category,
+                content=content,
+                collection=collection,
+                status=status,
+                chunk_count=chunk_count,
+                rag_doc_id=rag_doc_id,
+                is_active=1 if is_active else 0,
+                metadata_json=json.dumps(metadata or {}, ensure_ascii=False),
+                created_at=datetime.utcnow(),
+            )
+            session.add(obj)
+            await session.commit()
+            await session.refresh(obj)
+            return self._format_knowledge_version(obj)
+
+    async def next_knowledge_version(self, doc_id: str) -> int:
+        async with self._session() as session:
+            value = (await session.execute(
+                select(func.max(KnowledgeVersionORM.version))
+                .where(KnowledgeVersionORM.doc_id == doc_id)
+            )).scalar()
+            return int(value or 0) + 1
+
+    async def get_knowledge_document(self, doc_id: str) -> dict[str, Any] | None:
+        async with self._session() as session:
+            obj = await session.get(KnowledgeDocumentORM, doc_id)
+            return self._format_knowledge_document(obj) if obj else None
+
+    async def list_knowledge_documents(
+        self,
+        *,
+        collection: str,
+        page: int = 1,
+        page_size: int = 50,
+    ) -> dict[str, Any]:
+        async with self._session() as session:
+            total = int((await session.execute(
+                select(func.count()).select_from(KnowledgeDocumentORM)
+                .where(KnowledgeDocumentORM.collection == collection)
+            )).scalar() or 0)
+            rows = (await session.execute(
+                select(KnowledgeDocumentORM)
+                .where(KnowledgeDocumentORM.collection == collection)
+                .order_by(KnowledgeDocumentORM.updated_at.desc())
+                .limit(page_size)
+                .offset((page - 1) * page_size)
+            )).scalars().all()
+            return {
+                "total": total,
+                "page": page,
+                "page_size": page_size,
+                "documents": [self._format_knowledge_document(row) for row in rows],
+            }
+
+    async def list_knowledge_versions(self, doc_id: str) -> list[dict[str, Any]]:
+        async with self._session() as session:
+            rows = (await session.execute(
+                select(KnowledgeVersionORM)
+                .where(KnowledgeVersionORM.doc_id == doc_id)
+                .order_by(KnowledgeVersionORM.version.asc())
+            )).scalars().all()
+            return [self._format_knowledge_version(row) for row in rows]
+
+    async def get_knowledge_version(
+        self,
+        doc_id: str,
+        version: int,
+    ) -> dict[str, Any] | None:
+        async with self._session() as session:
+            obj = await session.scalar(
+                select(KnowledgeVersionORM).where(
+                    KnowledgeVersionORM.doc_id == doc_id,
+                    KnowledgeVersionORM.version == version,
+                )
+            )
+            return self._format_knowledge_version(obj) if obj else None
+
+    async def mark_knowledge_deleted(self, doc_id: str) -> None:
+        async with self._session() as session:
+            obj = await session.get(KnowledgeDocumentORM, doc_id)
+            if obj is None:
+                return
+            obj.status = "rolled_back"
+            obj.updated_at = datetime.utcnow()
+            await session.commit()
+
+    def _format_knowledge_document(self, obj: KnowledgeDocumentORM) -> dict[str, Any]:
+        row = self._orm_to_dict(obj)
+        raw = row.pop("metadata_json", None)
+        try:
+            extra = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            extra = {}
+        extra.setdefault("status", row.get("status"))
+        extra.setdefault("version", row.get("current_version"))
+        return {
+            "doc_id": row.get("doc_id"),
+            "title": row.get("title"),
+            "source": row.get("source") or row.get("title"),
+            "category": row.get("category"),
+            "collection": row.get("collection"),
+            "status": row.get("status"),
+            "chunk_count": row.get("chunk_count") or 0,
+            "content_hash": row.get("content_hash"),
+            "version": row.get("current_version") or 1,
+            "extra": extra,
+            "ingested_at": row.get("published_at") or row.get("updated_at") or row.get("created_at"),
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+        }
+
+    def _format_knowledge_version(self, obj: KnowledgeVersionORM) -> dict[str, Any]:
+        row = self._orm_to_dict(obj)
+        raw = row.pop("metadata_json", None)
+        try:
+            metadata = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            metadata = {}
+        return {
+            "doc_id": row.get("doc_id"),
+            "version": row.get("version"),
+            "title": row.get("title"),
+            "category": row.get("category"),
+            "content": row.get("content"),
+            "collection": row.get("collection"),
+            "status": row.get("status"),
+            "chunk_count": row.get("chunk_count") or 0,
+            "rag_doc_id": row.get("rag_doc_id"),
+            "is_active": bool(row.get("is_active")),
+            "metadata": metadata,
+            "created_at": row.get("created_at"),
+        }
 
     async def get_review_workbench_stats(self) -> dict[str, Any]:
         """审核工作台统计。

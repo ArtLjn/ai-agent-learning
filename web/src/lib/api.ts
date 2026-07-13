@@ -10,6 +10,7 @@ import type {
   KnowledgeListResponse,
   KnowledgeEvaluationLatestResponse,
   KnowledgeEvaluationReport,
+  KnowledgeVersionListResponse,
   OpsHealthResponse,
   PromptAgentName,
   PromptDiffResponse,
@@ -185,6 +186,18 @@ export const api = {
     request<ApiRecord>('/knowledge', {
       method: 'POST',
       body: formData,
+    }),
+  updateKnowledgeText: (docId: string, data: { title?: string; content: string; category?: string }) =>
+    request<ApiRecord>(`/knowledge/${encodeURIComponent(docId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    }),
+  getKnowledgeVersions: (docId: string) =>
+    request<KnowledgeVersionListResponse>(`/knowledge/${encodeURIComponent(docId)}/versions`),
+  rollbackKnowledge: (docId: string, version: number) =>
+    request<ApiRecord>(`/knowledge/${encodeURIComponent(docId)}/rollback`, {
+      method: 'POST',
+      body: JSON.stringify({ version }),
     }),
   deleteKnowledge: (docId: string) =>
     request<ApiRecord>(`/knowledge/${docId}`, { method: 'DELETE' }),

@@ -1,6 +1,6 @@
 import { Clock, AlertTriangle } from 'lucide-react'
 import type { ReviewQueueItem as ReviewQueueItemType } from '@/types'
-import { CategoryBadge, PriorityBadge } from '@/components/layout/StatusBadge'
+import { CategoryBadge, PriorityBadge, StatusBadge } from '@/components/layout/StatusBadge'
 import { TriggerBadge } from './ReviewBadges'
 import { formatWaiting, isWaitingTimeout } from './reviewUtils'
 import { cn } from '@/lib/utils'
@@ -40,6 +40,7 @@ export function ReviewQueueItem({ item, active, onSelect }: Props) {
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {item.category && <CategoryBadge category={item.category} />}
         {item.priority && <PriorityBadge priority={item.priority} />}
+        {item.status && <StatusBadge status={item.status} />}
         {aiRec && (
           <span className="rounded-sm bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
             AI: {aiRec}

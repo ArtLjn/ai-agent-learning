@@ -27,6 +27,8 @@ __all__ = [
     "TraceORM",
     "SpanORM",
     "HumanReviewORM",
+    "KnowledgeDocumentORM",
+    "KnowledgeVersionORM",
     "TicketMessageORM",
     "AuditLogORM",
     "TokenDailyStatsORM",
@@ -221,4 +223,56 @@ class TicketMessageORM(Base):
     __table_args__ = (
         Index("idx_tm_ticket_created", "ticket_id", "created_at"),
         Index("idx_tm_sender", "sender_type"),
+    )
+
+
+class KnowledgeDocumentORM(Base):
+    """服务台知识维护文档主记录。"""
+
+    __tablename__ = "knowledge_documents"
+
+    doc_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(64))
+    source: Mapped[str | None] = mapped_column(String(255))
+    collection: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    content_hash: Mapped[str | None] = mapped_column(String(128))
+    current_version: Mapped[int] = mapped_column(Integer, default=1)
+    content: Mapped[str | None] = mapped_column(Text)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str | None] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[str | None] = mapped_column(DateTime)
+    published_at: Mapped[str | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("idx_kd_status", "status"),
+        Index("idx_kd_collection", "collection"),
+        Index("idx_kd_category", "category"),
+    )
+
+
+class KnowledgeVersionORM(Base):
+    """服务台知识维护版本历史。"""
+
+    __tablename__ = "knowledge_versions"
+
+    version_id: Mapped[str] = mapped_column(String(160), primary_key=True)
+    doc_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    category: Mapped[str | None] = mapped_column(String(64))
+    content: Mapped[str | None] = mapped_column(Text)
+    collection: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    rag_doc_id: Mapped[str | None] = mapped_column(String(128))
+    is_active: Mapped[int] = mapped_column(Integer, default=0)
+    metadata_json: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[str | None] = mapped_column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("idx_kv_doc_version", "doc_id", "version"),
+        Index("idx_kv_doc_active", "doc_id", "is_active"),
     )

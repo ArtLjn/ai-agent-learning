@@ -8,6 +8,7 @@ import type {
 } from '@/types'
 
 export interface ReviewQueryParams {
+  status?: string
   trigger_type?: string
   category?: string
   priority?: string

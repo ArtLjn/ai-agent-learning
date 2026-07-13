@@ -154,6 +154,12 @@ export function Dashboard() {
       (max, item) => Math.max(max, Number(item.waiting_seconds ?? 0)),
       0,
     )
+    const reviewAdoptionRate = Number(
+      data?.service_desk?.review_quality?.ai_adoption_rate ??
+      reviewStats?.ai_adoption_rate ??
+      0,
+    )
+    const dissatisfiedFeedback = Number(data?.service_desk?.feedback_summary?.dissatisfied ?? 0)
 
     const dailyChart: DailyChartItem[] = (data?.daily_stats ?? []).map((item) => {
       const created = getDailyTotal(item)
@@ -249,10 +255,12 @@ export function Dashboard() {
       backlog,
       latestDay,
       maxReviewWaitSeconds,
+      reviewAdoptionRate,
+      dissatisfiedFeedback,
       healthScore,
       suggestions,
     }
-  }, [data, reviewQueue, reviewStats?.pending_count, tickets])
+  }, [data, reviewQueue, reviewStats?.ai_adoption_rate, reviewStats?.pending_count, tickets])
 
   if (isLoading || !data) {
     return <DashboardSkeleton />
@@ -334,7 +342,7 @@ export function Dashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
         <CompactMetric
           label="今日新增"
           value={dashboard.latestDay.created}
@@ -362,6 +370,20 @@ export function Dashboard() {
           detail={`${dashboard.pendingReviews} 个待审核`}
           icon={Users}
           color={dashboard.pendingReviews > 0 ? 'text-warning' : 'text-success'}
+        />
+        <CompactMetric
+          label="AI 建议采纳"
+          value={toPercent(dashboard.reviewAdoptionRate)}
+          detail="人工决策与推荐一致率"
+          icon={Sparkles}
+          color="text-primary"
+        />
+        <CompactMetric
+          label="不满意反馈"
+          value={dashboard.dissatisfiedFeedback}
+          detail="可从服务台钻取复核"
+          icon={ShieldCheck}
+          color={dashboard.dissatisfiedFeedback > 0 ? 'text-warning' : 'text-success'}
         />
       </div>
 

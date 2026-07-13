@@ -3,7 +3,10 @@ import {
   useDeleteKnowledge,
   useKnowledge,
   useKnowledgeEvaluation,
+  useKnowledgeVersions,
+  useRollbackKnowledge,
   useRunKnowledgeEvaluation,
+  useUpdateKnowledgeText,
   useUploadKnowledgeFile,
   useUploadKnowledgeText,
 } from '@/hooks/useApi'
@@ -33,6 +36,8 @@ import {
   FileText,
   Layers,
   PackageCheck,
+  Pencil,
+  RotateCcw,
   ShieldCheck,
   RefreshCw,
   SearchCheck,
@@ -51,7 +56,7 @@ type UploadProgressState = {
   fileName?: string
 }
 
-type KnowledgePublishStatus = 'pending' | 'published' | 'rejected'
+type KnowledgePublishStatus = 'pending' | 'ingesting' | 'published' | 'failed' | 'rolled_back'
 
 type KnowledgePublishInfo = {
   status: KnowledgePublishStatus
@@ -94,6 +99,11 @@ export function Knowledge() {
   const [file, setFile] = useState<File | null>(null)
   // 删除确认弹窗
   const [deleteTarget, setDeleteTarget] = useState<KnowledgeDocument | null>(null)
+  const [editTarget, setEditTarget] = useState<KnowledgeDocument | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editCategory, setEditCategory] = useState('')
+  const [editContent, setEditContent] = useState('')
+  const [versionTarget, setVersionTarget] = useState<KnowledgeDocument | null>(null)
   // 提示
   const [success, setSuccess] = useState('')
   const [error, setError] = useState('')
@@ -104,7 +114,10 @@ export function Knowledge() {
   const runEvaluation = useRunKnowledgeEvaluation()
   const uploadText = useUploadKnowledgeText()
   const uploadFile = useUploadKnowledgeFile()
+  const updateText = useUpdateKnowledgeText()
+  const rollbackKnowledge = useRollbackKnowledge()
   const deleteMutation = useDeleteKnowledge()
+  const versionsQuery = useKnowledgeVersions(versionTarget?.doc_id ?? null)
 
   const documents = useMemo(() => data?.documents || [], [data?.documents])
   const publishStats = useMemo(() => buildPublishStats(documents), [documents])
@@ -214,6 +227,48 @@ export function Knowledge() {
       setDeleteTarget(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.detail || err.message : '删除失败')
+    }
+  }
+
+  const openEditDialog = (doc: KnowledgeDocument) => {
+    setEditTarget(doc)
+    setEditTitle(doc.title || doc.source || '')
+    setEditCategory(doc.category || 'technical')
+    setEditContent('')
+  }
+
+  const handleUpdateKnowledge = async () => {
+    if (!editTarget || !editContent.trim()) return
+    setError('')
+    try {
+      const result = await updateText.mutateAsync({
+        docId: editTarget.doc_id,
+        data: {
+          title: editTitle,
+          category: editCategory,
+          content: editContent,
+        },
+      })
+      flashSuccess(`已发布新版本：v${String(result.version ?? '-')}`)
+      setEditTarget(null)
+      setEditContent('')
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail || err.message : '更新失败')
+    }
+  }
+
+  const handleRollback = async (version: number) => {
+    if (!versionTarget) return
+    setError('')
+    try {
+      const result = await rollbackKnowledge.mutateAsync({
+        docId: versionTarget.doc_id,
+        version,
+      })
+      flashSuccess(`已回滚并发布新版本：v${String(result.version ?? '-')}`)
+      setVersionTarget(null)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.detail || err.message : '回滚失败')
     }
   }
 
@@ -447,6 +502,8 @@ export function Knowledge() {
                       <KnowledgeListItem
                         key={doc.doc_id}
                         doc={doc}
+                        onEdit={() => openEditDialog(doc)}
+                        onRollback={() => setVersionTarget(doc)}
                         onDelete={() => setDeleteTarget(doc)}
                         deleting={
                           deleteMutation.isPending && deleteTarget?.doc_id === doc.doc_id
@@ -495,6 +552,107 @@ export function Knowledge() {
             >
               <Trash2 className="w-4 h-4 mr-1.5" />
               删除
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={editTarget !== null} onOpenChange={(v) => !v && setEditTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>更新知识文档</DialogTitle>
+            <DialogDescription>
+              提交后会重新入库并生成新的发布版本，历史版本会保留。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs text-muted-foreground">文档标题</label>
+              <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">分类</label>
+              <Input value={editCategory} onChange={(e) => setEditCategory(e.target.value)} className="mt-1" />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">新版本内容</label>
+              <Textarea
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                rows={8}
+                placeholder="粘贴更新后的处理手册、FAQ 或业务规则"
+                className="mt-1"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditTarget(null)}>
+              取消
+            </Button>
+            <Button
+              onClick={handleUpdateKnowledge}
+              disabled={!editContent.trim() || updateText.isPending}
+            >
+              <Pencil className="mr-1.5 h-4 w-4" />
+              发布新版本
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={versionTarget !== null} onOpenChange={(v) => !v && setVersionTarget(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>版本回滚</DialogTitle>
+            <DialogDescription>
+              选择一个历史版本作为内容来源，系统会创建新的 active 版本。
+            </DialogDescription>
+          </DialogHeader>
+          {versionsQuery.isLoading ? (
+            <div className="space-y-2">
+              <Skeleton className="h-12 rounded-md" />
+              <Skeleton className="h-12 rounded-md" />
+            </div>
+          ) : versionsQuery.error ? (
+            <div className="rounded-md border border-warning/30 bg-warning/10 px-3 py-2 text-sm text-warning">
+              版本加载失败：{versionsQuery.error.message}
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(versionsQuery.data?.versions ?? []).map((version) => (
+                <div
+                  key={version.version}
+                  className="flex items-center justify-between gap-3 rounded-md border border-border bg-background p-3"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <span>v{version.version}</span>
+                      {version.is_active && (
+                        <Badge variant="outline" className="border-success/30 bg-success/10 text-success">
+                          当前
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+                      {version.content || '该版本没有可预览文本'}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={version.is_active || !version.content || rollbackKnowledge.isPending}
+                    onClick={() => handleRollback(version.version)}
+                  >
+                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                    回滚
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setVersionTarget(null)}>
+              关闭
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -874,13 +1032,14 @@ function buildPublishStats(documents: KnowledgeDocument[]) {
       acc.chunks += doc.chunk_count || 0
       return acc
     },
-    { pending: 0, published: 0, rejected: 0, chunks: 0 }
+    { pending: 0, ingesting: 0, published: 0, failed: 0, rolled_back: 0, chunks: 0 }
   )
 }
 
 function getKnowledgePublishInfo(doc: KnowledgeDocument): KnowledgePublishInfo {
   const extra = doc.extra ?? {}
   const rawStatus = String(
+    doc.status ??
     extra.publish_status ??
     extra.review_status ??
     extra.status ??
@@ -889,13 +1048,25 @@ function getKnowledgePublishInfo(doc: KnowledgeDocument): KnowledgePublishInfo {
   const status: KnowledgePublishStatus =
     rawStatus === 'pending' || rawStatus === 'reviewing'
       ? 'pending'
-      : rawStatus === 'rejected'
-        ? 'rejected'
-        : 'published'
+      : rawStatus === 'ingesting'
+        ? 'ingesting'
+        : rawStatus === 'failed'
+          ? 'failed'
+          : rawStatus === 'rolled_back'
+            ? 'rolled_back'
+            : 'published'
 
   return {
     status,
-    label: status === 'pending' ? '待审核' : status === 'rejected' ? '已驳回' : '已发布',
+    label: status === 'pending'
+      ? '待审核'
+      : status === 'ingesting'
+        ? '入库中'
+        : status === 'failed'
+          ? '入库失败'
+          : status === 'rolled_back'
+            ? '已回滚'
+            : '已发布',
     reviewer: String(extra.reviewer ?? extra.published_by ?? extra.approved_by ?? 'system'),
     publishedAt: String(extra.published_at ?? extra.reviewed_at ?? doc.ingested_at ?? ''),
     note: String(extra.publish_note ?? extra.review_note ?? extra.note ?? '已写入向量库，可被工单处理流程检索引用'),
@@ -905,13 +1076,17 @@ function getKnowledgePublishInfo(doc: KnowledgeDocument): KnowledgePublishInfo {
 
 function publishBadgeClass(status: KnowledgePublishStatus): string {
   if (status === 'pending') return 'border-warning/30 bg-warning/10 text-warning'
-  if (status === 'rejected') return 'border-destructive/30 bg-destructive/10 text-destructive'
+  if (status === 'ingesting') return 'border-primary/30 bg-primary/10 text-primary'
+  if (status === 'failed') return 'border-destructive/30 bg-destructive/10 text-destructive'
+  if (status === 'rolled_back') return 'border-warning/30 bg-warning/10 text-warning'
   return 'border-success/30 bg-success/10 text-success'
 }
 
 function publishDotClass(status: KnowledgePublishStatus): string {
   if (status === 'pending') return 'h-2 w-2 shrink-0 rounded-full bg-warning'
-  if (status === 'rejected') return 'h-2 w-2 shrink-0 rounded-full bg-destructive'
+  if (status === 'ingesting') return 'h-2 w-2 shrink-0 rounded-full bg-primary'
+  if (status === 'failed') return 'h-2 w-2 shrink-0 rounded-full bg-destructive'
+  if (status === 'rolled_back') return 'h-2 w-2 shrink-0 rounded-full bg-warning'
   return 'h-2 w-2 shrink-0 rounded-full bg-success'
 }
 
@@ -961,10 +1136,14 @@ function getUploadStage(progress: UploadProgressState) {
 
 function KnowledgeListItem({
   doc,
+  onEdit,
+  onRollback,
   onDelete,
   deleting,
 }: {
   doc: KnowledgeDocument
+  onEdit: () => void
+  onRollback: () => void
   onDelete: () => void
   deleting: boolean
 }) {
@@ -976,11 +1155,16 @@ function KnowledgeListItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1 truncate text-sm font-medium">
-            {doc.source || '(无 source)'}
+            {doc.title || doc.source || '(无 source)'}
           </div>
           <Badge variant="outline" className="shrink-0 border-0 bg-primary/15 px-1.5 py-0 text-[10px] text-primary">
             {doc.category || 'uncategorized'}
           </Badge>
+          {doc.version && (
+            <Badge variant="outline" className="shrink-0 border-0 bg-secondary px-1.5 py-0 text-[10px]">
+              v{doc.version}
+            </Badge>
+          )}
           <Badge variant="outline" className={`shrink-0 px-1.5 py-0 text-[10px] ${publishBadgeClass(publish.status)}`}>
             {publish.label}
           </Badge>
@@ -1001,6 +1185,24 @@ function KnowledgeListItem({
           {publish.note}
         </div>
       </div>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0 text-muted-foreground opacity-0 hover:text-primary group-hover:opacity-100"
+        onClick={onEdit}
+        title="更新"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </Button>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="h-7 w-7 p-0 text-muted-foreground opacity-0 hover:text-warning group-hover:opacity-100"
+        onClick={onRollback}
+        title="回滚"
+      >
+        <RotateCcw className="h-3.5 w-3.5" />
+      </Button>
       <Button
         variant="ghost"
         size="sm"
