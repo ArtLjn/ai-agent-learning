@@ -1,4 +1,6 @@
 {"query":"新人第一天没有邮箱和钉钉权限怎么办？","collection":"ticket_knowledge","relevant":["employee-onboarding-guide#0","employee-account-sso-permission#0"],"tags":["employee","onboarding","account"]}
+{"query":"云舟科技员工服务台能处理哪些内部员工问题？","collection":"ticket_knowledge","relevant":["company-service-handbook#0"],"tags":["company","service-desk"]}
+{"query":"小舟助手、PeopleHub、FinFlow、BuyDesk 分别是什么入口？","collection":"ticket_knowledge","relevant":["company-platform-map#0"],"tags":["company","platform-map"]}
 {"query":"新员工不知道公司制度在哪里看，应该引导到哪里？","collection":"ticket_knowledge","relevant":["employee-rules-handbook#0","employee-dingtalk-bot-guide#0"],"tags":["employee","rules","portal"]}
 {"query":"忘记打卡了要不要找服务台直接改考勤？","collection":"ticket_knowledge","relevant":["employee-attendance-leave-overtime#0"],"tags":["attendance","correction"]}
 {"query":"加班有餐补吗，为什么我的餐补没到账？","collection":"ticket_knowledge","relevant":["employee-meal-subsidy-and-benefits#0","employee-attendance-leave-overtime#0"],"tags":["meal-subsidy","overtime","benefits"]}
