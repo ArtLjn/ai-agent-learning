@@ -500,7 +500,7 @@ class CoordinatorAgent:
         except ValidationError as e:
             raise NonRetryableError(f"LLM 返回结构不合规: {e}", cause=e)
 
-        return suggestion.model_dump()
+        return self._normalize_suggestion(suggestion.model_dump())
 
     @staticmethod
     def _fallback_suggest_decision(
@@ -527,12 +527,14 @@ class CoordinatorAgent:
                     "recommended_decision": "request_info",
                     "confidence": 0.65,
                     "reasoning": "升级原因显示缺少业务处理所需信息，建议先请求用户补充",
+                    "reason": "升级原因显示缺少业务处理所需信息，建议先请求用户补充",
                     "key_concerns": ["需补充订单号或支付凭证"],
                 }
             return {
                 "recommended_decision": "reprocess",
                 "confidence": 0.5,
                 "reasoning": "升级工单默认建议重新处理",
+                "reason": "升级工单默认建议重新处理",
                 "key_concerns": ["需人工确认AI处理方向"],
             }
         if trigger_type == "review_failed":
@@ -540,6 +542,7 @@ class CoordinatorAgent:
                 "recommended_decision": "rewrite",
                 "confidence": 0.6,
                 "reasoning": "AI多次审核未通过，建议人工改写",
+                "reason": "AI多次审核未通过，建议人工改写",
                 "key_concerns": ["AI生成结果质量不达标"],
             }
         if trigger_type == "error_fallback":
@@ -547,6 +550,7 @@ class CoordinatorAgent:
                 "recommended_decision": "reprocess",
                 "confidence": 0.4,
                 "reasoning": "工作流异常，建议重新处理",
+                "reason": "工作流异常，建议重新处理",
                 "key_concerns": ["需排查异常原因"],
             }
         # user_request
@@ -554,8 +558,17 @@ class CoordinatorAgent:
             "recommended_decision": "approve",
             "confidence": 0.3,
             "reasoning": "用户主动申请复审，默认建议通过",
+            "reason": "用户主动申请复审，默认建议通过",
             "key_concerns": ["需人工确认用户诉求"],
         }
+
+    @staticmethod
+    def _normalize_suggestion(data: dict) -> dict:
+        """补齐人工审核建议的兼容字段。"""
+        reasoning = str(data.get("reasoning") or data.get("reason") or "").strip()
+        data["reasoning"] = reasoning
+        data["reason"] = reasoning
+        return data
 
     @staticmethod
     def create_from_settings(

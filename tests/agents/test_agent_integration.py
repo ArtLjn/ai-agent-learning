@@ -16,10 +16,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from src.multi_agent_system.core import fallback_registry
-from src.multi_agent_system.core.exceptions import (
-    NonRetryableError,
-    RetryableError,
-)
 
 
 def _make_mock_response(content_dict: dict) -> MagicMock:
@@ -133,6 +129,55 @@ class TestClassifierAgentRetry:
 
         # JSON 解析失败触发降级
         assert result.get("fallback") is True
+
+    @pytest.mark.asyncio
+    async def test_classify_invalid_schema_uses_safe_defaults_and_route_reason(self) -> None:
+        """LLM 输出枚举非法时，应落安全默认值并保留可解释路由原因。"""
+        from src.multi_agent_system.agents.classifier import ClassifierAgent
+
+        agent = ClassifierAgent(model="test-model")
+        mock_response = _make_mock_response({
+            "category": "unknown-category",
+            "priority": "P9",
+            "reason": "模型输出了非法枚举",
+            "confidence": "bad-score",
+        })
+        agent._client = _make_mock_client(mock_response)
+
+        result = await agent.classify("咨询一下报表入口在哪里")
+
+        assert result["category"] == "inquiry"
+        assert result["priority"] == "P3"
+        assert result["confidence"] == 0.8
+        assert result["route_reason"]
+
+    @pytest.mark.asyncio
+    async def test_classify_fallback_generates_p0_route_reason(self) -> None:
+        """关键词兜底应识别 P0 并输出 route_reason。"""
+        from openai import APIError
+
+        from src.multi_agent_system.agents.classifier import ClassifierAgent
+
+        agent = ClassifierAgent(model="test-model")
+        agent._client = _make_mock_client(
+            side_effect=APIError(message="server error", request=MagicMock(), body=None)
+        )
+
+        result = await agent.classify("核心业务不可用，全部用户无法登录")
+
+        assert result["category"] == "technical"
+        assert result["priority"] == "P0"
+        assert result["route_reason"]
+
+    def test_classify_fallback_without_keyword_returns_default_route_reason(self) -> None:
+        """完全未命中关键词时，也应返回安全默认分类。"""
+        from src.multi_agent_system.agents.classifier import ClassifierAgent
+
+        result = ClassifierAgent._classify_by_fallback("帮我看一下这个情况")
+
+        assert result["category"] == "inquiry"
+        assert result["priority"] == "P3"
+        assert result["route_reason"] == "默认咨询类低风险工单，进入自动处理流程"
 
 
 # ============================================================

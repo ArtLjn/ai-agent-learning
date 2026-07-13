@@ -421,12 +421,20 @@ class ReActProcessorAgent:
                 }})
                 return ""
 
+            retrieve_hit_count = len(chunks)
+            retrieve_top_score = chunks[0].score if chunks else 0.0
+            rerank_error = ""
             if chunks:
-                chunks = await self._rag_client.rerank(
-                    query=query,
-                    chunks=chunks,
-                    top_k=rerank_top_k,
-                )
+                try:
+                    chunks = await self._rag_client.rerank(
+                        query=query,
+                        chunks=chunks,
+                        top_k=rerank_top_k,
+                    )
+                except RagServiceUnavailable as e:
+                    logger.warning(f"[ReAct] RagClient rerank failed, degrading: {e}")
+                    chunks = []
+                    rerank_error = str(e)
 
             top_score = chunks[0].score if chunks else 0.0
             retrieved_docs = [
@@ -443,6 +451,14 @@ class ReActProcessorAgent:
                 "top_score": round(top_score, 4),
                 "retrieval_mode": actual_mode,
                 "rag_service_reachable": rag_service_reachable,
+                "retrieve_hit_count": retrieve_hit_count,
+                "retrieve_top_score": round(retrieve_top_score, 4),
+                "rerank_applied": bool(retrieve_hit_count and not rerank_error),
+                "rerank_hit_count": len(chunks),
+                "rerank_top_k": rerank_top_k,
+                "rerank_error": rerank_error,
+                "degraded": bool(debug.get("warning") or rerank_error),
+                "warning": debug.get("warning"),
                 "query": query,
                 "retrieved_docs": retrieved_docs,
             }})

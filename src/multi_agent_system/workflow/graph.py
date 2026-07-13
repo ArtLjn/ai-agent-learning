@@ -266,6 +266,127 @@ def _build_review_decision(
                 else ("信息不足，等待用户补充" if retry_suppressed else "阈值判断")
             ),
         },
+        "execution": {
+            "downstream_node": (
+                "finalize_knowledge_gap"
+                if finalize_gap
+                else "request_user_input"
+                if retry_suppressed
+                else "notify"
+                if passed
+                else "retry_check"
+            )
+        },
+    }
+
+
+def _build_route_decision(state: TicketState, selected: str) -> dict[str, Any]:
+    """构造 route 节点的业务路由决策记录。"""
+    category = state.get("category") or ""
+    priority = state.get("priority") or "P3"
+    risk_reason = state.get("risk_reason") or ""
+    reason_map = {
+        "escalate": risk_reason or "投诉、P0、高风险或缺失关键字段，进入服务台人工审核",
+        "process": "普通工单进入知识增强处理和质量审核链路",
+        "auto_reply": "咨询工单自动回复",
+    }
+    return {
+        "decision_type": "workflow_route",
+        "trigger": {
+            "category": category,
+            "priority": priority,
+            "risk_level": state.get("risk_level"),
+            "requires_human_review": state.get("requires_human_review"),
+            "risk_reason": risk_reason,
+        },
+        "options": [
+            {"value": "process", "score": 1.0 if selected == "process" else 0.0, "reason": "智能处理"},
+            {"value": "escalate", "score": 1.0 if selected == "escalate" else 0.0, "reason": "服务台人工审核"},
+        ],
+        "selection": {
+            "value": selected,
+            "confidence": 1.0,
+            "reason": reason_map.get(selected, "状态机条件路由"),
+        },
+        "execution": {"downstream_node": selected},
+    }
+
+
+def _build_process_decision(
+    *,
+    category: str,
+    priority: str,
+    result_length: int,
+    reference_count: int,
+    used_agent: bool,
+) -> dict[str, Any]:
+    """构造 process 节点的方案生成决策记录。"""
+    return {
+        "decision_type": "agent_processing",
+        "trigger": {
+            "category": category,
+            "priority": priority,
+            "reference_count": reference_count,
+        },
+        "options": [
+            {
+                "value": "generate_solution",
+                "score": 1.0,
+                "reason": "普通工单进入处理 Agent 生成方案",
+            },
+            {
+                "value": "human_review",
+                "score": 0.0,
+                "reason": "当前未在 process 节点触发人工兜底",
+            },
+        ],
+        "selection": {
+            "value": "generate_solution",
+            "confidence": 1.0 if result_length else 0.0,
+            "reason": "使用 ReActProcessorAgent" if used_agent else "使用占位处理逻辑",
+        },
+        "execution": {"downstream_node": "review", "result_length": result_length},
+    }
+
+
+def _build_human_review_decision(
+    *,
+    trigger_type: str,
+    trigger_reason: str,
+    review_id: str,
+    ai_suggestion: dict | None,
+) -> dict[str, Any]:
+    """构造 human_review_wait 节点的人工兜底决策记录。"""
+    recommended = (ai_suggestion or {}).get("recommended_decision")
+    confidence = (ai_suggestion or {}).get("confidence")
+    reason = (
+        (ai_suggestion or {}).get("reason")
+        or (ai_suggestion or {}).get("reasoning")
+        or trigger_reason
+    )
+    return {
+        "decision_type": "human_handoff",
+        "trigger": {
+            "trigger_type": trigger_type,
+            "trigger_reason": trigger_reason,
+        },
+        "options": [
+            {"value": "approve", "score": 1.0 if recommended == "approve" else 0.0, "reason": "人工确认可通过"},
+            {"value": "rewrite", "score": 1.0 if recommended == "rewrite" else 0.0, "reason": "人工改写后返回员工"},
+            {"value": "reprocess", "score": 1.0 if recommended == "reprocess" else 0.0, "reason": "退回智能处理链路"},
+            {"value": "request_info", "score": 1.0 if recommended == "request_info" else 0.0, "reason": "请求员工补充信息"},
+            {"value": "reject", "score": 1.0 if recommended == "reject" else 0.0, "reason": "人工驳回"},
+        ],
+        "selection": {
+            "value": recommended or "pending_manual_decision",
+            "confidence": confidence if confidence is not None else 0.0,
+            "reason": reason,
+        },
+        "execution": {
+            "downstream_node": "END",
+            "review_id": review_id,
+            "status": "pending_human_review",
+        },
     }
 
 
@@ -558,6 +679,13 @@ async def route(state: TicketState) -> dict:
     """
     _restore_trace_context(state)
     with log_context(agent="router"):
+        selected = route_decision(state)
+        async with _span("route", input_data={
+            "category": state.get("category"),
+            "priority": state.get("priority"),
+        }) as span:
+            span.set_output({"next_node": selected})
+            span.set_metadata({"decision": _build_route_decision(state, selected)})
         return {}
 
 
@@ -592,6 +720,13 @@ async def process(state: TicketState) -> dict:
                     }
                 )
                 span.set_metadata({
+                    "decision": _build_process_decision(
+                        category=category,
+                        priority=priority,
+                        result_length=len(processing_result),
+                        reference_count=len(references),
+                        used_agent=True,
+                    ),
                     "agent_handoff": _build_agent_handoff(
                         from_agent="Processor Agent",
                         to_agent="Reviewer Agent",
@@ -617,6 +752,13 @@ async def process(state: TicketState) -> dict:
             )
             span.set_output({"result": "placeholder"})
             span.set_metadata({
+                "decision": _build_process_decision(
+                    category=category,
+                    priority=priority,
+                    result_length=len(processing_result),
+                    reference_count=0,
+                    used_agent=False,
+                ),
                 "agent_handoff": _build_agent_handoff(
                     from_agent="Processor Agent",
                     to_agent="Reviewer Agent",
@@ -1173,6 +1315,15 @@ async def retry_check(state: TicketState) -> dict:
                     "confidence": 1.0,
                     "reason": "演示安全兜底" if auto_finalize else "硬阈值",
                 },
+                "execution": {
+                    "downstream_node": (
+                        "notify"
+                        if auto_finalize
+                        else "human_review_wait"
+                        if will_escalate
+                        else "process"
+                    )
+                },
             }})
         return result
 
@@ -1344,6 +1495,12 @@ async def human_review_wait(state: TicketState) -> dict:
                 "review_id": review_id,
                 "ai_suggestion": ai_suggestion,
             })
+            span.set_metadata({"decision": _build_human_review_decision(
+                trigger_type=trigger_type,
+                trigger_reason=trigger_reason,
+                review_id=review_id,
+                ai_suggestion=ai_suggestion,
+            )})
 
         # 4. 标记需广播 review_requested，更新工单状态
         return {
@@ -1482,7 +1639,7 @@ def _build_human_approved_result(state: TicketState) -> str:
     else:
         lines.append("3. 人工结论：确认该问题需要按人工审核意见处理。")
     if content:
-        lines.append(f"4. 后续建议：请按上述结论继续处理；如仍异常，可补充现象截图、时间点和影响范围。")
+        lines.append("4. 后续建议：请按上述结论继续处理；如仍异常，可补充现象截图、时间点和影响范围。")
     return "\n".join(lines)
 
 

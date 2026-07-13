@@ -63,7 +63,21 @@ def test_fallback_extracts_billing_refund_intent() -> None:
     assert result["priority"] == "P1"
     assert result["title"] == "上个月账单多扣了 200 元"
     assert result["contact"] == "finance@example.com"
+    assert result["contact_context"] == "finance@example.com"
+    assert result["missing_fields"] == result["required_fields"]
     assert "【原始描述】" in result["content"]
+
+
+def test_fallback_returns_missing_fields_for_business_action() -> None:
+    """涉及真实账务处理且缺少材料时，应返回缺失字段列表。"""
+    result = TicketIntentAgent.extract_by_fallback(
+        "上个月账单多扣了 200 元，请帮我退款"
+    )
+
+    assert result["category"] == "billing"
+    assert result["requires_business_operation"] is True
+    assert "order_id" in result["missing_fields"]
+    assert result["required_fields"] == result["missing_fields"]
 
 
 def test_fallback_marks_core_outage_as_p0() -> None:

@@ -200,6 +200,8 @@ class TicketIntentAgent:
         )
         required_fields = result.get("required_fields")
         if not isinstance(required_fields, list):
+            required_fields = result.get("missing_fields")
+        if not isinstance(required_fields, list):
             required_fields = TicketIntentAgent._guess_required_fields(original_content, category)
         required_fields = [str(field) for field in required_fields if str(field).strip()]
         can_auto_resolve = bool(
@@ -220,10 +222,12 @@ class TicketIntentAgent:
             "impact": impact or "仅本人受影响",
             "expectation": expectation,
             "contact": contact,
+            "contact_context": contact or "未提及联系方式",
             "occurred_at": occurred_at,
             "intent_kind": intent_kind,
             "requires_business_operation": requires_business_operation,
             "required_fields": required_fields,
+            "missing_fields": required_fields,
             "can_auto_resolve": can_auto_resolve,
             "risk_level": risk.risk_level,
             "requires_human_review": risk.requires_human_review,

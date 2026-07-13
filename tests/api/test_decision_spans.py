@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import json
-import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,7 +20,6 @@ from src.multi_agent_system.core.database import DatabaseManager
 from src.multi_agent_system.core.trace import TraceManager, current_trace_id
 from src.multi_agent_system.models.ticket import TicketCategory, TicketPriority
 from src.multi_agent_system.workflow import graph as graph_module
-from tests.conftest import TEST_DATABASE_URL
 
 
 @pytest_asyncio.fixture
@@ -295,3 +293,43 @@ class TestReviewDecisionStructure:
         assert "trigger" in decision
         assert "options" in decision
         assert "selection" in decision
+        assert "execution" in decision
+
+
+class TestV22DecisionMetadata:
+    """v2.2: route/process/human_review_wait 决策点应写完整 metadata。"""
+
+    @pytest.mark.asyncio
+    async def test_route_process_and_handoff_spans_have_execution_metadata(
+        self, db_manager: DatabaseManager, decision_setup
+    ) -> None:
+        """关键 workflow 节点应写 trigger/options/selection/execution。"""
+        trace_id = await _start_trace_for_ticket(
+            decision_setup, db_manager, "TK-V22-TRACE"
+        )
+
+        state = graph_module.create_initial_state("核心业务不可用，全部用户无法登录", ticket_id="TK-V22-TRACE")
+        state["__trace_id__"] = trace_id
+        state["category"] = TicketCategory.TECHNICAL.value
+        state["priority"] = TicketPriority.P0.value
+        state["risk_level"] = "critical"
+        state["requires_human_review"] = True
+        state["risk_reason"] = "P0 核心业务不可用"
+        await graph_module.route(state)
+        await graph_module.human_review_wait(state)
+
+        process_state = graph_module.create_initial_state("系统报错 ERR-5001", ticket_id="TK-V22-TRACE")
+        process_state["__trace_id__"] = trace_id
+        process_state["category"] = TicketCategory.TECHNICAL.value
+        process_state["priority"] = TicketPriority.P2.value
+        await graph_module.process(process_state)
+
+        spans = await db_manager.get_spans_by_trace(trace_id)
+        by_name = {span["name"]: span for span in spans}
+        for name in ("route", "process", "human_review_wait"):
+            metadata = json.loads(by_name[name]["metadata"]) if by_name[name]["metadata"] else {}
+            decision = metadata.get("decision") or {}
+            assert decision.get("trigger") is not None
+            assert decision.get("options")
+            assert decision.get("selection")
+            assert decision.get("execution")

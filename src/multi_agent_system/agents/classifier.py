@@ -6,7 +6,7 @@ from loguru import logger
 from openai import APIConnectionError, APIError, AuthenticationError, RateLimitError
 
 from src.multi_agent_system.config import Settings
-from src.multi_agent_system.core import CachedLLMClient, FallbackRegistry, fallback_registry, track_agent_execution, with_retry
+from src.multi_agent_system.core import CachedLLMClient, fallback_registry, track_agent_execution, with_retry
 from src.multi_agent_system.core.exceptions import NonRetryableError, RetryableError
 from src.multi_agent_system.core.json_parser import parse_json_response
 from src.multi_agent_system.core.risk_policy import assess_ticket_risk
@@ -20,6 +20,10 @@ _CLASSIFIER_SYSTEM_PROMPT = get_prompt_template("classify")
 
 # 关键词降级规则（与 graph.py 中的占位逻辑一致）
 _FALLBACK_RULES: dict[str, tuple[str, str]] = {
+    "核心业务不可用": (TicketCategory.TECHNICAL.value, TicketPriority.P0.value),
+    "完全不可用": (TicketCategory.TECHNICAL.value, TicketPriority.P0.value),
+    "全部用户": (TicketCategory.TECHNICAL.value, TicketPriority.P0.value),
+    "大规模": (TicketCategory.TECHNICAL.value, TicketPriority.P0.value),
     "崩溃": (TicketCategory.TECHNICAL.value, TicketPriority.P1.value),
     "报错": (TicketCategory.TECHNICAL.value, TicketPriority.P2.value),
     "无法登录": (TicketCategory.TECHNICAL.value, TicketPriority.P1.value),
@@ -179,6 +183,17 @@ class ClassifierAgent:
             },
         )
 
+        route_reason = str(result.get("route_reason") or "").strip()
+        if not route_reason:
+            route_reason = ClassifierAgent._build_route_reason(
+                category=category,
+                priority=priority,
+                risk_level=risk.risk_level,
+                requires_human_review=risk.requires_human_review,
+                risk_reason=risk.reason,
+                reason=reason,
+            )
+
         return {
             "category": category,
             "priority": priority,
@@ -190,6 +205,7 @@ class ClassifierAgent:
             "required_fields": result.get("required_fields") if isinstance(result.get("required_fields"), list) else [],
             "can_auto_resolve": bool(result.get("can_auto_resolve")),
             "reason": reason,
+            "route_reason": route_reason,
             "confidence": confidence,
         }
 
@@ -211,6 +227,10 @@ class ClassifierAgent:
             "category": TicketCategory.INQUIRY.value,
             "priority": TicketPriority.P3.value,
             "reason": "关键词匹配降级：未匹配到关键词，使用默认分类",
+            "route_reason": "默认咨询类低风险工单，进入自动处理流程",
+            "risk_level": "low",
+            "requires_human_review": False,
+            "risk_reason": "",
             "confidence": 0.3,
         }
 
@@ -226,6 +246,7 @@ class ClassifierAgent:
                 "requires_human_review": True,
                 "risk_reason": risk.reason,
                 "reason": "风险策略要求人工审核",
+                "route_reason": f"风险策略触发人工审核：{risk.reason}",
                 "confidence": confidence,
             }
         for keyword, (category, priority) in _FALLBACK_RULES.items():
@@ -242,9 +263,38 @@ class ClassifierAgent:
                     "requires_human_review": risk.requires_human_review,
                     "risk_reason": risk.reason,
                     "reason": f"关键词规则匹配：匹配到 '{keyword}'",
+                    "route_reason": ClassifierAgent._build_route_reason(
+                        category=category,
+                        priority=priority,
+                        risk_level=risk.risk_level,
+                        requires_human_review=risk.requires_human_review,
+                        risk_reason=risk.reason,
+                        reason=f"关键词规则匹配：匹配到 '{keyword}'",
+                    ),
                     "confidence": confidence,
                 }
         return None
+
+    @staticmethod
+    def _build_route_reason(
+        *,
+        category: str,
+        priority: str,
+        risk_level: str | None,
+        requires_human_review: bool,
+        risk_reason: str | None,
+        reason: str,
+    ) -> str:
+        """生成可解释路由原因，供服务台和运维 Trace 查看。"""
+        if requires_human_review:
+            return risk_reason or "分类或风险策略要求进入服务台人工审核"
+        if category == TicketCategory.COMPLAINT.value:
+            return "投诉类工单需要服务台人工审核"
+        if priority == TicketPriority.P0.value:
+            return "P0 紧急工单需要服务台人工审核"
+        if risk_level in {"high", "critical"}:
+            return "高风险工单需要服务台人工审核"
+        return reason or f"{category}/{priority} 普通工单进入智能处理流程"
 
     @staticmethod
     def create_from_settings() -> "ClassifierAgent":

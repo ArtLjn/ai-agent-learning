@@ -60,6 +60,20 @@ class _StaticReviewerAgent:
         }
 
 
+class _AlwaysFailReviewerAgent:
+    async def review(self, content: str, processing_result: str, category: str) -> dict:
+        return {
+            "score": 0.2,
+            "feedback": "处理结果缺少关键步骤",
+            "dimensions": {},
+            "issues": ["答案不可执行"],
+            "suggestion": "重新生成处理方案",
+            "should_retry": True,
+            "issue_type": "fixable",
+            "retry_suppressed": False,
+        }
+
+
 class _KnowledgeGapReviewerAgent:
     async def review(self, content: str, processing_result: str, category: str) -> dict:
         return {
@@ -468,8 +482,6 @@ class TestTicketWorkflow:
         通过注入 review_score 为低分的状态来模拟审核不通过的场景，
         验证 retry_check 节点递增 retry_count 并重新进入 process。
         """
-        from src.multi_agent_system.workflow.state import TicketState
-
         initial = create_initial_state("系统崩溃了")
         # 手动设置 retry_count=2，占位 review 的 base_score=0.85，减去 2*0.15=0.55
         # 0.55 < 阈值 0.7，会触发 retry_check，但 retry_count=2 < 3 所以会重试
@@ -535,6 +547,17 @@ class TestRouteDecision:
         state["risk_level"] = "medium"
         state["requires_human_review"] = True
         state["risk_reason"] = "涉及真实账务处理，需要人工核查订单和支付流水"
+
+        assert route_decision(state) == "escalate"
+
+    def test_missing_required_fields_routes_to_escalate(self):
+        """字段缺失且需业务操作时，应进入服务台人工审核兜底。"""
+        state = create_initial_state("账单多扣了 200 元，请帮我退款")
+        state["category"] = "billing"
+        state["priority"] = "P1"
+        state["requires_human_review"] = True
+        state["risk_level"] = "medium"
+        state["risk_reason"] = "涉及真实账务处理且缺少 order_id/payment_record"
 
         assert route_decision(state) == "escalate"
 
@@ -631,3 +654,20 @@ class TestRetryDecision:
         state["retry_count"] = 5
 
         assert retry_decision(state) == "human_review_wait"
+
+    @pytest.mark.asyncio
+    async def test_review_failure_below_max_retries_reprocesses(self):
+        """审核失败且未达上限时，应递增 retry_count 并回到处理链路。"""
+        graph = build_ticket_graph(agents={
+            "processor": _ShardMigrationProcessorAgent(),
+            "reviewer": _AlwaysFailReviewerAgent(),
+        })
+        state = create_initial_state("数据库迁移方案")
+        state["category"] = "technical"
+        state["priority"] = "P2"
+        state["retry_count"] = 1
+
+        result = await graph.ainvoke(state)
+
+        assert result["retry_count"] >= 2
+        assert result["status"] in {"pending_human_review", "completed"}

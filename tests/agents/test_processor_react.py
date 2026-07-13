@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from src.multi_agent_system.agents.processor_react import ReActProcessorAgent
 from src.multi_agent_system.core.tool_base import ToolBase, ToolRegistry
+from src.multi_agent_system.tools.rag_client import RagChunk, RagServiceUnavailable
 from pydantic import BaseModel, Field
 
 
@@ -36,6 +37,57 @@ class MapKnowledgeSearchTool(ToolBase):
 
     async def fallback(self, query: str) -> str:
         return "Knowledge base unavailable"
+
+
+class _CollectingSpan:
+    """收集 RAG span 的 metadata，避免测试依赖真实数据库 trace。"""
+
+    def __init__(self) -> None:
+        self.metadata = {}
+        self.output = {}
+        self.status = ""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+    def set_metadata(self, data):
+        self.metadata.update(data)
+
+    def set_output(self, data):
+        self.output.update(data)
+
+    def set_status(self, status):
+        self.status = status
+
+
+class _SuccessfulRagClient:
+    async def retrieve(self, **kwargs):
+        return [
+            RagChunk(
+                id="doc-1",
+                content="登录失败请检查账号状态和统一认证服务。",
+                score=0.81,
+                metadata={"title": "登录手册", "category": "technical"},
+            )
+        ], {"actual_mode": "hybrid", "warning": None}
+
+    async def rerank(self, **kwargs):
+        return [
+            RagChunk(
+                id="doc-1",
+                content="登录失败请检查账号状态和统一认证服务。",
+                score=0.93,
+                metadata={"title": "登录手册", "category": "technical"},
+            )
+        ]
+
+
+class _FailingRerankRagClient(_SuccessfulRagClient):
+    async def rerank(self, **kwargs):
+        raise RagServiceUnavailable("rerank timeout")
 
 
 @pytest.fixture
@@ -400,3 +452,49 @@ async def test_react_processor_stops_after_repeated_no_action_responses(mock_cli
     assert "问题较复杂" not in result["result"]
     assert "Knowledge about 平台提供哪些能力" in result["result"]
     assert mock_client.chat_completions_create.call_count <= 2
+
+
+@pytest.mark.asyncio
+async def test_react_processor_rag_success_records_retrieve_and_rerank_metadata(mock_client):
+    """RAG 成功时应记录命中数、top score、检索模式和 rerank 元数据。"""
+    agent = ReActProcessorAgent(
+        model="test-model",
+        client=mock_client,
+        rag_client=_SuccessfulRagClient(),
+    )
+    span = _CollectingSpan()
+    agent._get_tool_span = lambda *args, **kwargs: span
+
+    result = await agent._prefetch_knowledge("无法登录", "technical")
+
+    assert "登录失败请检查账号状态" in result
+    rag_stats = span.metadata["rag_stats"]
+    assert rag_stats["hit_count"] == 1
+    assert rag_stats["top_score"] == 0.93
+    assert rag_stats["retrieval_mode"] == "hybrid"
+    assert rag_stats["retrieve_hit_count"] == 1
+    assert rag_stats["retrieve_top_score"] == 0.81
+    assert rag_stats["rerank_applied"] is True
+    assert rag_stats["rerank_hit_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_react_processor_rerank_unavailable_degrades_to_empty_references(mock_client):
+    """rerank 超时或不可用时，应降级为空引用并不中断工单处理。"""
+    agent = ReActProcessorAgent(
+        model="test-model",
+        client=mock_client,
+        rag_client=_FailingRerankRagClient(),
+    )
+    span = _CollectingSpan()
+    agent._get_tool_span = lambda *args, **kwargs: span
+
+    result = await agent._prefetch_knowledge("无法登录", "technical")
+
+    assert result == ""
+    rag_stats = span.metadata["rag_stats"]
+    assert rag_stats["hit_count"] == 0
+    assert rag_stats["retrieve_hit_count"] == 1
+    assert rag_stats["rerank_applied"] is False
+    assert rag_stats["rerank_error"] == "rerank timeout"
+    assert rag_stats["degraded"] is True
