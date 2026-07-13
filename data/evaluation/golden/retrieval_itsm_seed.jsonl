@@ -1,0 +1,22 @@
+{"query":"新人第一天没有邮箱和钉钉权限怎么办？","collection":"ticket_knowledge","relevant":["employee-onboarding-guide#0","employee-account-sso-permission#0"],"tags":["employee","onboarding","account"]}
+{"query":"新员工不知道公司制度在哪里看，应该引导到哪里？","collection":"ticket_knowledge","relevant":["employee-rules-handbook#0","employee-dingtalk-bot-guide#0"],"tags":["employee","rules","portal"]}
+{"query":"忘记打卡了要不要找服务台直接改考勤？","collection":"ticket_knowledge","relevant":["employee-attendance-leave-overtime#0"],"tags":["attendance","correction"]}
+{"query":"加班有餐补吗，为什么我的餐补没到账？","collection":"ticket_knowledge","relevant":["employee-meal-subsidy-and-benefits#0","employee-attendance-leave-overtime#0"],"tags":["meal-subsidy","overtime","benefits"]}
+{"query":"办公用品在哪个平台购买，需要走审批吗？","collection":"ticket_knowledge","relevant":["employee-procurement-platform#0"],"tags":["procurement","office-supplies"]}
+{"query":"采购软件许可证可以直接找供应商下单吗？","collection":"ticket_knowledge","relevant":["employee-procurement-platform#0","employee-software-and-gpt-access#0"],"tags":["procurement","license"]}
+{"query":"报销单被退回，发票抬头填错了怎么处理？","collection":"ticket_knowledge","relevant":["employee-expense-reimbursement#0"],"tags":["reimbursement","invoice"]}
+{"query":"钉钉机器人能帮我查哪些员工服务问题？","collection":"ticket_knowledge","relevant":["employee-dingtalk-bot-guide#0"],"tags":["dingtalk","bot"]}
+{"query":"钉钉机器人回答的制度和原文不一致，以哪个为准？","collection":"ticket_knowledge","relevant":["employee-rules-handbook#0","employee-dingtalk-bot-guide#0"],"tags":["dingtalk","policy"]}
+{"query":"SSO 登录提示 403，没有菜单权限应该怎么处理？","collection":"ticket_knowledge","relevant":["employee-account-sso-permission#0"],"tags":["sso","permission","403"]}
+{"query":"员工更换部门后业务系统权限没更新，需要补哪些信息？","collection":"ticket_knowledge","relevant":["employee-account-sso-permission#0"],"tags":["permission","transfer"]}
+{"query":"邮箱收不到会议邀请，会议室日历不同步怎么办？","collection":"ticket_knowledge","relevant":["employee-email-calendar#0"],"tags":["email","calendar"]}
+{"query":"VPN 连上后打不开内网系统，是权限还是网络问题？","collection":"ticket_knowledge","relevant":["employee-vpn-network#0","employee-account-sso-permission#0"],"tags":["vpn","network"]}
+{"query":"会议室投屏失败影响客户会议，服务台应该升级吗？","collection":"ticket_knowledge","relevant":["employee-device-printer-meetingroom#0","service-desk-priority-and-escalation#0"],"tags":["meeting-room","priority"]}
+{"query":"打印机无法连接，需要提供打印机名称和办公地点吗？","collection":"ticket_knowledge","relevant":["employee-device-printer-meetingroom#0"],"tags":["printer","device"]}
+{"query":"公司 GPT 权限怎么开通，可以用个人 AI 工具处理客户资料吗？","collection":"ticket_knowledge","relevant":["employee-software-and-gpt-access#0","employee-security-compliance#0"],"tags":["gpt","security"]}
+{"query":"邮件附件被 DLP 拦截，是不是一定违规？","collection":"ticket_knowledge","relevant":["employee-security-compliance#0"],"tags":["dlp","security"]}
+{"query":"员工手机丢了，里面有公司数据，第一步应该做什么？","collection":"ticket_knowledge","relevant":["employee-security-compliance#0"],"tags":["device-loss","security"]}
+{"query":"离职员工还能登录 VPN 和财务系统，应该如何升级？","collection":"ticket_knowledge","relevant":["employee-offboarding-transfer#0","service-desk-priority-and-escalation#0"],"tags":["offboarding","security","priority"]}
+{"query":"员工要求工单加急，服务台按什么标准判断优先级？","collection":"ticket_knowledge","relevant":["service-desk-priority-and-escalation#0"],"tags":["priority","escalation"]}
+{"query":"RAG 没有命中制度文档，AI 应该直接回答吗？","collection":"ticket_knowledge","relevant":["knowledge-maintenance-guide#0","service-desk-priority-and-escalation#0"],"tags":["rag","knowledge-gap"]}
+{"query":"同一个加班餐补问题很多人问，怎么沉淀到知识库？","collection":"ticket_knowledge","relevant":["knowledge-maintenance-guide#0","employee-meal-subsidy-and-benefits#0"],"tags":["knowledge-base","meal-subsidy"]}

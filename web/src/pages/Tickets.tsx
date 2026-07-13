@@ -41,9 +41,9 @@ const MOCK_CATEGORY_LABELS = MOCK_CATEGORY_OPTIONS.reduce<Record<TicketCategory,
 )
 
 const EXAMPLE_PROMPTS = [
-  '今天上午 10:15 开始后台一直 504，部分业务人员无法登录，请尽快恢复，联系 ops@example.com',
-  '上个月账单多扣了 200 元，已经核对订单记录，请帮我退款，手机号 13800000000',
-  '我找不到导出本月工单报表的入口，请告知在哪里操作',
+  '我是新员工，今天入职后还没有邮箱和 VPN 权限，钉钉里也找不到制度入口，请帮忙处理',
+  '昨晚加班到 22:30，钉钉加班审批已通过，但没有看到餐补记录，请帮忙核查',
+  '团队要采购显示器和一个设计软件许可证，不知道应该在哪个平台提交申请',
 ]
 
 interface AgentTicketComposerProps {
