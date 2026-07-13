@@ -144,6 +144,29 @@ class TestAdminTraceByTicket:
         assert data["decisions"][0]["selection_value"] == "technical"
         assert data["decisions"][0]["confidence"] == pytest.approx(0.82)
 
+    def test_trace_without_decision_metadata_has_empty_state_hint(
+        self, client: TestClient, app: FastAPI
+    ):
+        """无 metadata.decision 时返回显式空态提示，方便运维定位埋点缺失。"""
+        now = time.time()
+        _save_trace(app, {
+            "trace_id": "tr-nodecision", "ticket_id": "TK-NODECISION",
+            "status": "completed", "start_time": now,
+        })
+        _save_span(app, {
+            "span_id": "sp-plain", "trace_id": "tr-nodecision",
+            "parent_span_id": None, "span_type": "node", "name": "classify",
+            "status": "ok", "start_time": now, "duration": 0.1,
+            "metadata": json.dumps({"note": "no decision"}),
+        })
+
+        resp = client.get("/api/admin/traces/TK-NODECISION")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["decision_count"] == 0
+        assert data["decision_empty_state"]["reason"] == "missing_decision_metadata"
+        assert data["decision_empty_state"]["span_count"] == 1
+
 
 class TestAdminSpanDetail:
     """GET /api/admin/traces/{ticket_id}/spans/{span_id} span 详情。"""

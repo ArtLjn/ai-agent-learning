@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/dialog'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { Loader2, Sparkles, FileText, GitCompare, RefreshCw } from 'lucide-react'
+import { Loader2, Sparkles, FileText, GitCompare, RefreshCw, RotateCcw } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
 import { toast } from '@/lib/toast'
 import type { PromptAgentName, PromptVersion } from '@/types'
@@ -123,6 +123,17 @@ export function PromptVersions() {
     }
   }
 
+  async function rollback() {
+    setError(null)
+    try {
+      const record = await api.rollbackPromptVersion(agent)
+      await loadVersions(agent)
+      await reloadActive(`${agent} 已回滚到 v${record.version} 并热重载`)
+    } catch (e) {
+      setError(e instanceof ApiError ? e.detail || e.message : String(e))
+    }
+  }
+
   async function openDiff(toVersion: number) {
     if (versions.length < 2) return
     // 默认拿当前 active 作为 from
@@ -167,6 +178,10 @@ export function PromptVersions() {
               <RefreshCw className="w-4 h-4 mr-1.5" />
             )}
             热重载
+          </Button>
+          <Button variant="outline" onClick={() => void rollback()} disabled={reloading || loading}>
+            <RotateCcw className="w-4 h-4 mr-1.5" />
+            回滚
           </Button>
           <Button onClick={() => setCreateOpen(true)} disabled={loading}>
             <FileText className="w-4 h-4 mr-1.5" />

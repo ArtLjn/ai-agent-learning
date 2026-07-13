@@ -29,6 +29,9 @@ export interface UserProfile {
   preferred_categories: TicketCategory[]
   created_at: string | null
   status: string
+  role?: string
+  role_scope?: string
+  role_label?: string
 }
 
 export interface RegisterRequest {
@@ -506,6 +509,13 @@ export interface SystemConfigQdrant {
 export interface SystemConfigRagService {
   status: string
   base_url: string | null
+  timeout_seconds: number
+  retry: number
+  fallback_enabled: boolean
+  collection: string
+  components?: Record<string, unknown>
+  warning?: string | null
+  error?: string | null
   api_key_configured: boolean
 }
 
@@ -539,6 +549,18 @@ export interface SystemConfig {
     version: string
     note: string
   }
+}
+
+export interface OpsHealthComponent {
+  status: string
+  latency_ms: number | null
+  detail: string | null
+}
+
+export interface OpsHealthResponse {
+  status: string
+  components: Record<'rag_service' | 'qdrant' | 'llm' | 'embedding', OpsHealthComponent>
+  checked_at: number
 }
 
 // A-07 操作日志审计
@@ -592,6 +614,11 @@ export interface PromptVersionListResponse {
 export interface AdminTraceDetail extends TraceDetail {
   decisions: AdminSpanDecision[]
   decision_count: number
+  decision_empty_state?: {
+    reason: string
+    message: string
+    span_count: number
+  } | null
 }
 
 export interface AdminSpanDecision {
@@ -623,6 +650,30 @@ export interface PromptDiffResponse {
   to_version: number
   diff: string
   has_diff: boolean
+}
+
+export interface RagDebugResult {
+  id: string | null
+  content: string
+  score: number
+  chunk_index: number
+  metadata: Record<string, unknown>
+}
+
+export interface RagDebugResponse {
+  query: string
+  collection: string
+  mode: string
+  retrieval: {
+    hit_count: number
+    debug: Record<string, unknown>
+    results: RagDebugResult[]
+  }
+  rerank: {
+    hit_count: number
+    results: RagDebugResult[]
+  }
+  error: string | null
 }
 
 // D-05 Agent 调用统计

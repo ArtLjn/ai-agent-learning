@@ -407,6 +407,7 @@ export default function SpanTreeView() {
             <CardContent>
               <DecisionTimeline
                 decisions={trace.decisions}
+                emptyState={trace.decision_empty_state?.message}
                 onSelect={handleSpanClick}
               />
             </CardContent>
@@ -920,13 +921,15 @@ function SpanNode({
 
 function DecisionTimeline({
   decisions,
+  emptyState,
   onSelect,
 }: {
   decisions: AdminSpanDecision[]
+  emptyState?: string
   onSelect: (spanId: string) => void
 }) {
   if (decisions.length === 0) {
-    return <EmptyBlock description="该 trace 无决策点埋点" />
+    return <EmptyBlock description={emptyState || '该 trace 无决策点埋点'} />
   }
   return (
     <ol className="relative space-y-3 border-l border-border pl-4">

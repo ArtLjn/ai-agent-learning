@@ -10,6 +10,7 @@
 - 6 类配置：LLM / Embedding / Qdrant / rag-service / 数据库 / 鉴权
 """
 
+import time
 from typing import Any
 
 import httpx
@@ -162,4 +163,70 @@ async def get_system_config(
             "version": "v1.0.0",
             "note": "只读视图，配置修改请联系开发人员通过环境变量调整",
         },
+    }
+
+
+def _component(
+    *,
+    status: str,
+    latency_ms: float | None = None,
+    detail: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "status": status,
+        "latency_ms": latency_ms,
+        "detail": detail,
+    }
+
+
+@router.get("/health")
+async def get_ops_health(
+    request: Request,
+    _role: dict = Depends(require_role("admin", "developer")),
+) -> dict[str, Any]:
+    """系统运维健康视图：聚合 rag-service、Qdrant、LLM、Embedding 状态。
+
+    当前主系统无法安全直连所有外部依赖做真实请求，除 rag-service 复用
+    /health 探活外，其余依赖以配置完整性作为可观测信号，并保留 latency_ms
+    字段给前端统一展示。
+    """
+    settings = request.app.state.settings
+    started = time.perf_counter()
+    rag = await _probe_rag_service_health(settings.rag_service_url)
+    rag_latency = round((time.perf_counter() - started) * 1000, 2)
+
+    def configured(*values: Any) -> str:
+        return "ok" if all(values) else "degraded"
+
+    components = {
+        "rag_service": _component(
+            status=rag["status"],
+            latency_ms=rag_latency,
+            detail=rag.get("error") or rag.get("warning"),
+        ),
+        "qdrant": _component(
+            status=configured(settings.qdrant_url, settings.qdrant_collection),
+            latency_ms=None,
+            detail=None if settings.qdrant_url else "qdrant_url 未配置",
+        ),
+        "llm": _component(
+            status=configured(settings.llm_base_url, settings.llm_model),
+            latency_ms=None,
+            detail=None if settings.llm_base_url else "llm_base_url 未配置",
+        ),
+        "embedding": _component(
+            status=configured(settings.embedding_base_url, settings.embedding_model),
+            latency_ms=None,
+            detail=None if settings.embedding_base_url else "embedding_base_url 未配置",
+        ),
+    }
+    overall = "ok"
+    if any(c["status"] == "unreachable" for c in components.values()):
+        overall = "degraded"
+    elif any(c["status"] == "degraded" for c in components.values()):
+        overall = "degraded"
+    return {
+        "status": overall,
+        "components": components,
+        "checked_at": time.time(),
     }

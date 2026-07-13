@@ -15,8 +15,6 @@ import json
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from fastapi.responses import JSONResponse
-
 from src.multi_agent_system.core.permissions import require_role
 
 __all__ = ["router"]
@@ -126,6 +124,13 @@ async def get_trace_with_spans(ticket_id: str, request: Request) -> dict[str, An
 
     spans = await db_manager.get_spans_by_trace(trace["trace_id"])
     span_tree, decisions = _build_span_tree(spans)
+    decision_empty_state = None
+    if not decisions:
+        decision_empty_state = {
+            "reason": "missing_decision_metadata",
+            "message": "当前 trace 未记录 metadata.decision，请检查节点决策埋点。",
+            "span_count": len(spans),
+        }
 
     return {
         "trace_id": trace["trace_id"],
@@ -145,6 +150,7 @@ async def get_trace_with_spans(ticket_id: str, request: Request) -> dict[str, An
         "spans": span_tree,
         "decision_count": len(decisions),
         "decisions": decisions,
+        "decision_empty_state": decision_empty_state,
     }
 
 

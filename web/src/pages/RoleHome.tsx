@@ -5,7 +5,7 @@ import { api, type AuthState } from '@/lib/api'
 
 function homePathForRole(role: string | null) {
   if (role === 'admin') return '/dashboard'
-  if (role === 'developer') return '/tickets'
+  if (role === 'developer') return '/dev/traces'
   return '/my'
 }
 

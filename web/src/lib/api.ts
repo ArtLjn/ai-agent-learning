@@ -10,10 +10,12 @@ import type {
   KnowledgeListResponse,
   KnowledgeEvaluationLatestResponse,
   KnowledgeEvaluationReport,
+  OpsHealthResponse,
   PromptAgentName,
   PromptDiffResponse,
   PromptVersion,
   PromptVersionListResponse,
+  RagDebugResponse,
   RegisterRequest,
   RegisterResponse,
   Span,
@@ -224,6 +226,10 @@ export const api = {
       `/admin/prompts/${agentName}/versions/${version}/activate`,
       { method: 'POST' },
     ),
+  rollbackPromptVersion: (agentName: PromptAgentName) =>
+    request<PromptVersion>(`/admin/prompts/${agentName}/rollback`, {
+      method: 'POST',
+    }),
   diffPromptVersions: (
     agentName: PromptAgentName,
     fromVersion: number,
@@ -243,8 +249,23 @@ export const api = {
   getAgentStats: (days: number = 7) =>
     request<AgentStatsResponse>(`/admin/stats/agents?days=${days}`),
 
+  // 策略调试：RAG 检索调试
+  debugRag: (data: {
+    query: string
+    mode?: string
+    top_k?: number
+    rerank_top_k?: number
+    collection?: string
+    use_hyde?: boolean
+  }) =>
+    request<RagDebugResponse>('/admin/rag/debug', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
   // Health（不鉴权，供前端探活）
   getHealth: () => request<ApiRecord>('/health'),
+  getOpsHealth: () => request<OpsHealthResponse>('/admin/config/health'),
 
   // ============================================================
   // D-01 / D-04 开发人员工作台（admin trace + token stats）

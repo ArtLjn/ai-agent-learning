@@ -234,6 +234,44 @@ def test_activate_old_version_disables_current(
     assert items[3]["is_active"] is False
 
 
+def test_rollback_activates_previous_version(
+    client: TestClient, app: FastAPI
+) -> None:
+    """回滚接口应激活当前 active 之前的最近版本。"""
+    admin = _register(client, "theadmin")
+    _promote_to_admin(client, app, admin["user_id"])
+
+    for i in range(1, 4):
+        client.post(
+            "/api/admin/prompts/process/versions",
+            json={"template": f"process v{i}"},
+        )
+
+    resp = client.post("/api/admin/prompts/process/rollback")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["version"] == 2
+    assert body["is_active"] is True
+
+    active = client.get("/api/admin/prompts/process/active").json()["active"]
+    assert active["version"] == 2
+
+
+def test_rollback_without_previous_version_returns_409(
+    client: TestClient, app: FastAPI
+) -> None:
+    """只有一个版本时不能回滚。"""
+    admin = _register(client, "theadmin")
+    _promote_to_admin(client, app, admin["user_id"])
+    client.post(
+        "/api/admin/prompts/review/versions",
+        json={"template": "review v1"},
+    )
+
+    resp = client.post("/api/admin/prompts/review/rollback")
+    assert resp.status_code == 409
+
+
 def test_activate_nonexistent_returns_404(
     client: TestClient, app: FastAPI
 ) -> None:
@@ -473,7 +511,6 @@ def test_reload_clears_override_when_no_active(
         app.state.db_manager.activate_prompt_version, "classify", 999  # 不存在，无副作用
     )
     # 实际清掉需要直接 SQL；这里通过 _session 改 is_active
-    import asyncio
     async def _deactivate():
         async with app.state.db_manager._session() as session:
             from src.multi_agent_system.models.db import PromptVersionORM

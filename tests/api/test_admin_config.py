@@ -263,6 +263,22 @@ def test_rag_service_exposes_collection(client: TestClient, app: FastAPI) -> Non
     assert rag_cfg["collection"] == "ticket_knowledge"
 
 
+def test_health_endpoint_reports_ops_dependencies(
+    client: TestClient, app: FastAPI
+) -> None:
+    """系统健康接口聚合 rag-service、Qdrant、LLM、Embedding 四类依赖。"""
+    user = _register(client, "theadmin")
+    _promote_to_admin(client, app, user["user_id"])
+
+    body = client.get("/api/admin/config/health").json()
+    components = body["components"]
+    assert set(components) == {"rag_service", "qdrant", "llm", "embedding"}
+    assert components["rag_service"]["status"] in {"ok", "unreachable", "degraded"}
+    for name in ("qdrant", "llm", "embedding"):
+        assert "status" in components[name]
+        assert "latency_ms" in components[name]
+
+
 def test_auth_category_does_not_leak_secret(client: TestClient, app: FastAPI) -> None:
     """auth 类只暴露开关，不暴露 hash/secret 原值。"""
     user = _register(client, "theadmin")

@@ -16,6 +16,7 @@ import {
   BarChart3,
   GitBranch,
   DollarSign,
+  DatabaseZap,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { api, type AuthState } from '@/lib/api'
@@ -31,18 +32,19 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: '/my', icon: LayoutDashboard, label: '我的工作台', roles: ['user'] },
-  { to: '/dashboard', icon: LayoutDashboard, label: '运营总览', roles: ['admin'] },
+  { to: '/dashboard', icon: LayoutDashboard, label: '服务台总览', roles: ['admin'] },
   { to: '/tickets', icon: Ticket, label: '工单管理', roles: ['user', 'admin', 'developer'] },
   { to: '/profile', icon: UserCircle, label: '个人资料', roles: ['user', 'admin', 'developer'] },
   { to: '/reviews', icon: ShieldCheck, label: '审核工作台', roles: ['admin'] },
   { to: '/knowledge', icon: BookOpen, label: '知识库', roles: ['admin'] },
-  { to: '/admin/users', icon: Users2, label: '用户管理', roles: ['admin'] },
-  { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin'] },
+  { to: '/admin/users', icon: Users2, label: '账号治理', roles: ['admin', 'developer'] },
+  { to: '/admin/audit-logs', icon: ScrollText, label: '操作日志', roles: ['admin', 'developer'] },
   { to: '/monitor', icon: Activity, label: 'Agent 监控', roles: ['developer'] },
-  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['developer'] },
-  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['developer'] },
-  { to: '/dev/traces', icon: GitBranch, label: '状态机画布', roles: ['developer'] },
-  { to: '/dev/tokens', icon: DollarSign, label: 'Token 控制台', roles: ['developer'] },
+  { to: '/dev/prompts', icon: Sparkles, label: 'Prompt 版本', roles: ['admin', 'developer'] },
+  { to: '/dev/rag-debug', icon: DatabaseZap, label: 'RAG 调试', roles: ['admin', 'developer'] },
+  { to: '/dev/agent-stats', icon: BarChart3, label: 'Agent 统计', roles: ['admin', 'developer'] },
+  { to: '/dev/traces', icon: GitBranch, label: '流程监控', roles: ['admin', 'developer'] },
+  { to: '/dev/tokens', icon: DollarSign, label: 'Token 用量', roles: ['admin', 'developer'] },
   { to: '/settings', icon: Settings, label: '系统配置', roles: ['admin', 'developer'] },
 ]
 
@@ -88,7 +90,7 @@ export function Sidebar() {
         <Bot className="w-6 h-6 text-primary" />
         <div>
           <h1 className="text-sm font-semibold text-foreground leading-tight">Agent 工单系统</h1>
-          <p className="text-[10px] text-muted-foreground">LangGraph + Multi-Agent</p>
+          <p className="text-[10px] text-muted-foreground">内部服务台智能工单</p>
         </div>
       </div>
 

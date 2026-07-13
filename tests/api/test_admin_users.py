@@ -10,7 +10,6 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.multi_agent_system.api.admin_users import router as admin_users_router
 from src.multi_agent_system.api.auth_routes import router as auth_router
 from src.multi_agent_system.api.user_routes import router as user_router
-from src.multi_agent_system.config import Settings
 from src.multi_agent_system.core.auth import require_login
 from src.multi_agent_system.core.database import DatabaseManager
 
@@ -139,6 +138,18 @@ def test_list_users_admin_role_returns_200(
     assert any(item["user_id"] == user["user_id"] for item in body["items"])
 
 
+def test_list_users_developer_role_returns_200(
+    client: TestClient, app: FastAPI
+) -> None:
+    """系统运维人员（developer）可以进入账号治理接口。"""
+    user = _register(client, "opsuser")
+    client.portal.call(app.state.db_manager.update_user_role, user["user_id"], "developer")
+    _relogin(client, "opsuser")
+
+    resp = client.get("/api/admin/users")
+    assert resp.status_code == 200, resp.text
+
+
 # ============================================================
 # 筛选 + 分页
 # ============================================================
@@ -257,6 +268,22 @@ def test_patch_status_ban_then_unban(client: TestClient, app: FastAPI) -> None:
     assert resp.json()["status"] == "active"
 
 
+def test_banned_logged_in_account_cannot_access_protected_api(
+    client: TestClient, app: FastAPI
+) -> None:
+    """账号被封禁后，既有登录 session 也不能继续访问受保护业务 API。"""
+    user = _register(client, "bannedlive")
+    client.portal.call(
+        app.state.db_manager.update_user_status,
+        user["user_id"],
+        "banned",
+    )
+
+    resp = client.get("/api/users/me")
+    assert resp.status_code == 403
+    assert resp.json()["detail"] == "账户已被禁用"
+
+
 # ============================================================
 # 自我保护 + 输入校验
 # ============================================================
@@ -323,7 +350,7 @@ def test_patch_user_role_cannot_modify_others(
     client: TestClient, app: FastAPI
 ) -> None:
     """user 角色调 PATCH /admin/users/{id} → 403。"""
-    user = _register(client, "normaluser")
+    _register(client, "normaluser")
     other = _register(client, "otheruser")
 
     resp = client.patch(

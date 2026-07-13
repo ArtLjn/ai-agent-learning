@@ -68,11 +68,38 @@ async def require_login(request: HTTPConnection) -> dict[str, Any]:
             detail="未登录或会话已过期",
             headers={"Location": "/login"},
         )
+    await _ensure_session_user_active(request, user)
     return user
 
 
 # 让 import require_login 的代码也能拿到 Depends 形式
 require_login_dep = Depends(require_login)
+
+
+async def _ensure_session_user_active(
+    request: HTTPConnection,
+    user: dict[str, Any],
+) -> None:
+    """校验既有 session 对应账号仍处于 active 状态。
+
+    管理员封禁账号后，用户可能仍持有旧 session。受保护接口在进入业务逻辑
+    前统一回查账号状态，避免被禁用账号继续访问工单、资料和管理端接口。
+    """
+    user_id = user.get("user_id")
+    if not user_id:
+        return
+    app = getattr(request, "app", None)
+    db_manager = getattr(getattr(app, "state", None), "db_manager", None)
+    if db_manager is None:
+        return
+    db_user = await db_manager.get_user(user_id)
+    if db_user is None or db_user.get("status") == "banned":
+        if hasattr(request, "session"):
+            request.session.clear()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="账户已被禁用",
+        )
 
 
 # ============================================================

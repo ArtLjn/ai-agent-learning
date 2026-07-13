@@ -52,9 +52,9 @@ type RoleOption = 'user' | 'admin' | 'developer'
 type StatusOption = 'active' | 'banned'
 
 const ROLE_LABEL: Record<RoleOption, string> = {
-  user: '用户',
-  admin: '管理员',
-  developer: '开发者',
+  user: '企业员工',
+  admin: '服务台人员',
+  developer: '系统运维',
 }
 
 const STATUS_LABEL: Record<StatusOption, string> = {
@@ -170,9 +170,9 @@ export function UserManagement() {
           <Users2 className="h-5 w-5 text-primary" />
         </div>
         <div>
-          <h1 className="text-xl font-semibold tracking-tight">用户管理</h1>
+          <h1 className="text-xl font-semibold tracking-tight">账号治理</h1>
           <p className="text-sm text-muted-foreground">
-            管理员可调整用户角色（user/admin/developer）与状态（正常/封禁）
+            维护企业员工、服务台人员和系统运维人员的角色与账号状态
           </p>
         </div>
       </div>
@@ -225,9 +225,9 @@ export function UserManagement() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">全部</SelectItem>
-                  <SelectItem value="user">用户</SelectItem>
-                  <SelectItem value="admin">管理员</SelectItem>
-                  <SelectItem value="developer">开发者</SelectItem>
+                  <SelectItem value="user">企业员工</SelectItem>
+                  <SelectItem value="admin">服务台人员</SelectItem>
+                  <SelectItem value="developer">系统运维</SelectItem>
                 </SelectContent>
               </Select>
               <span className="text-xs text-muted-foreground ml-2">状态</span>
@@ -384,15 +384,15 @@ export function UserManagement() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="user">用户（user）</SelectItem>
-                  <SelectItem value="admin">管理员（admin）</SelectItem>
-                  <SelectItem value="developer">开发者（developer）</SelectItem>
+                  <SelectItem value="user">企业员工（user）</SelectItem>
+                  <SelectItem value="admin">服务台人员（admin）</SelectItem>
+                  <SelectItem value="developer">系统运维（developer）</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                <strong>用户</strong>：仅访问工单 / Profile。<br />
-                <strong>管理员</strong>：全部菜单，含审核工作台 / 知识库 / 用户管理。<br />
-                <strong>开发者</strong>：工单 + Agent 监控 + 审核工作台。
+                <strong>企业员工</strong>：提交工单、补充材料、查看进度。<br />
+                <strong>服务台人员</strong>：人工审核兜底、知识维护、运营分析。<br />
+                <strong>系统运维</strong>：账号治理、流程监控、策略调试、系统健康。
               </p>
             </div>
             <div className="space-y-2">

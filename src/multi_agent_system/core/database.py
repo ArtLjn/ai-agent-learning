@@ -437,7 +437,7 @@ class DatabaseManager:
             session.add(obj)
             try:
                 await session.commit()
-            except IntegrityError as exc:
+            except IntegrityError:
                 await session.rollback()
                 raise
 
@@ -1241,6 +1241,50 @@ class DatabaseManager:
             await session.commit()
             await session.refresh(target)
             return self._orm_to_dict(target)
+
+    async def rollback_prompt_version(
+        self,
+        agent_name: str,
+    ) -> dict[str, Any] | None:
+        """回滚到当前 active 之前的最近版本。
+
+        返回 None 表示没有可回滚版本（无 active 或 active 已是最早版本）。
+        """
+        async with self._session() as session:
+            active = await session.scalar(
+                select(PromptVersionORM).where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.is_active.is_(True),
+                )
+            )
+            if active is None:
+                return None
+
+            previous = await session.scalar(
+                select(PromptVersionORM)
+                .where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.version < active.version,
+                )
+                .order_by(PromptVersionORM.version.desc())
+                .limit(1)
+            )
+            if previous is None:
+                return None
+
+            await session.execute(
+                PromptVersionORM.__table__.update()
+                .where(
+                    PromptVersionORM.agent_name == agent_name,
+                    PromptVersionORM.is_active.is_(True),
+                )
+                .values(is_active=False)
+            )
+            previous.is_active = True
+            previous.activated_at = datetime.utcnow()
+            await session.commit()
+            await session.refresh(previous)
+            return self._orm_to_dict(previous)
 
     async def get_prompt_version(
         self,

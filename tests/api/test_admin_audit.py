@@ -24,7 +24,6 @@ from src.multi_agent_system.api.auth_routes import router as auth_router
 from src.multi_agent_system.api.user_routes import router as user_router
 from src.multi_agent_system.config import Settings
 from src.multi_agent_system.core.audit_middleware import (
-    ACTION_LABELS,
     AuditMiddleware,
     filter_sensitive_keys,
     parse_audit_request,
@@ -175,6 +174,22 @@ def test_action_inference_prompt_activate() -> None:
         "POST", "/api/admin/prompts/processor/activate", {"version": "v2"}
     )
     assert result == ("prompt_activate", "processor", "prompt")
+
+
+def test_action_inference_prompt_version_activate() -> None:
+    """当前 Prompt 激活接口 /versions/{version}/activate 必须写审计。"""
+    result = parse_audit_request(
+        "POST", "/api/admin/prompts/process/versions/2/activate", None
+    )
+    assert result == ("prompt_activate", "process:2", "prompt")
+
+
+def test_action_inference_prompt_rollback() -> None:
+    """Prompt 回滚属于策略调试高风险操作，必须写审计。"""
+    result = parse_audit_request(
+        "POST", "/api/admin/prompts/process/rollback", None
+    )
+    assert result == ("prompt_rollback", "process", "prompt")
 
 
 def test_action_inference_get_not_captured() -> None:

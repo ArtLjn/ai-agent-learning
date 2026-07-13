@@ -1,6 +1,5 @@
 """FastAPI 应用主模块，管理应用生命周期和路由注册。"""
 
-import asyncio
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -22,6 +21,7 @@ from src.multi_agent_system.api.auth_routes import router as auth_router
 from src.multi_agent_system.api.admin_audit import router as admin_audit_router
 from src.multi_agent_system.api.admin_config import router as admin_config_router
 from src.multi_agent_system.api.admin_prompts import router as admin_prompts_router
+from src.multi_agent_system.api.admin_rag import router as admin_rag_router
 from src.multi_agent_system.api.admin_stats import router as admin_stats_router
 from src.multi_agent_system.api.admin_trace import router as admin_trace_router
 from src.multi_agent_system.api.admin_users import router as admin_users_router
@@ -294,6 +294,7 @@ app.include_router(admin_users_router, prefix="/api")
 app.include_router(admin_config_router, prefix="/api")
 app.include_router(admin_audit_router, prefix="/api")
 app.include_router(admin_prompts_router, prefix="/api")
+app.include_router(admin_rag_router, prefix="/api")
 app.include_router(admin_stats_router, prefix="/api")
 app.include_router(admin_trace_router, prefix="/api")
 

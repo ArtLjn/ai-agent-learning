@@ -7,6 +7,7 @@
 - GET  /api/admin/prompts/{agent_name}/versions: 版本列表
 - POST /api/admin/prompts/{agent_name}/versions: 新建版本
 - POST /api/admin/prompts/{agent_name}/versions/{version}/activate: 激活
+- POST /api/admin/prompts/{agent_name}/rollback: 回滚到上一版本
 - GET  /api/admin/prompts/{agent_name}/diff?from=v1&to=v2: difflib unified diff
 - GET  /api/admin/prompts/{agent_name}/active: 当前激活版本
 - POST /api/admin/prompts/reload: 热重载（不用重启服务即可让 active 版本生效）
@@ -121,6 +122,23 @@ async def activate_version(
     return record
 
 
+@router.post("/{agent_name}/rollback")
+async def rollback_version(
+    agent_name: str,
+    request: Request,
+) -> dict[str, Any]:
+    """回滚到当前 active 之前的最近版本。"""
+    _validate_agent_name(agent_name)
+    db_manager = request.app.state.db_manager
+    record = await db_manager.rollback_prompt_version(agent_name)
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"无可回滚版本: agent={agent_name}",
+        )
+    return record
+
+
 @router.get("/{agent_name}/diff")
 async def diff_versions(
     agent_name: str,
@@ -183,8 +201,6 @@ async def reload_active_prompts(request: Request) -> dict[str, Any]:
         reloaded: dict[agent_name, version] — 本次成功注入的版本号
         skipped: list[agent_name] — 缺失 Agent 实例或无 active 版本的 Agent
     """
-    from src.multi_agent_system.core.prompt_loader import load_active_prompts
-
     db_manager = request.app.state.db_manager
     agents = _collect_agents(request.app.state)
 

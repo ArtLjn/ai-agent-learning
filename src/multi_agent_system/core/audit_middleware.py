@@ -19,6 +19,7 @@ action 推断覆盖 7 类（与 tasks.md 6.4 对齐）：
   DELETE /api/admin/knowledge/{doc_id}             -> knowledge_delete
   POST   /api/admin/knowledge/{doc_id}/rollback    -> knowledge_rollback
   POST   /api/admin/prompts/{agent}/versions/{v}/activate -> prompt_activate
+  POST   /api/admin/prompts/{agent}/rollback              -> prompt_rollback
   POST   /api/admin/users/{id}/reset_password      -> password_reset
 """
 
@@ -94,8 +95,18 @@ _ACTION_RULES: list[tuple[str, str, str]] = [
     # Prompt 版本激活
     (
         "POST",
+        r"^/api/admin/prompts/(?P<agent>[^/]+)/versions/(?P<version>\d+)/activate$",
+        "prompt_activate",
+    ),
+    (
+        "POST",
         r"^/api/admin/prompts/(?P<target_id>[^/]+)/activate$",
         "prompt_activate",
+    ),
+    (
+        "POST",
+        r"^/api/admin/prompts/(?P<target_id>[^/]+)/rollback$",
+        "prompt_rollback",
     ),
 ]
 
@@ -111,6 +122,7 @@ ACTION_LABELS: dict[str, str] = {
     "knowledge_delete": "知识库删除",
     "knowledge_rollback": "知识库回滚",
     "prompt_activate": "Prompt 激活",
+    "prompt_rollback": "Prompt 回滚",
 }
 
 
@@ -121,7 +133,10 @@ def _match_action(method: str, path: str) -> tuple[str, str | None] | None:
             continue
         m = re.match(pattern, path)
         if m:
-            target_id = m.groupdict().get("target_id")
+            groupdict = m.groupdict()
+            target_id = groupdict.get("target_id")
+            if action == "prompt_activate" and groupdict.get("agent"):
+                target_id = f"{groupdict['agent']}:{groupdict.get('version')}"
             return action, target_id
     return None
 
@@ -141,7 +156,7 @@ def _resolve_target_type(action: str) -> str | None:
         return "knowledge"
     if action == "review_decision":
         return "review"
-    if action == "prompt_activate":
+    if action in {"prompt_activate", "prompt_rollback"}:
         return "prompt"
     return None
 

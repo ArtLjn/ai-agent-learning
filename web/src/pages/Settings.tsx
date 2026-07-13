@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AlertCircle, Settings2, Bot, Database, Shield, Server, KeyRound, Cpu } from 'lucide-react'
 import { api, ApiError } from '@/lib/api'
-import type { SystemConfig } from '@/types'
+import type { OpsHealthResponse, SystemConfig } from '@/types'
 
 type BadgeState = 'configured' | 'empty' | 'warning'
 
@@ -20,6 +20,26 @@ function statusBadge(state: BadgeState, label?: string) {
       {label ?? (state === 'configured' ? '已配置' : state === 'empty' ? '未配置' : '注意')}
     </Badge>
   )
+}
+
+function healthBadge(status: string | undefined) {
+  if (status === 'ok' || status === 'healthy') {
+    return statusBadge('configured', '正常')
+  }
+  if (status === 'unreachable') {
+    return statusBadge('warning', '不可达')
+  }
+  return statusBadge('empty', status || '未知')
+}
+
+function healthLabel(key: 'rag_service' | 'qdrant' | 'llm' | 'embedding') {
+  const labels = {
+    rag_service: 'rag-service',
+    qdrant: 'Qdrant',
+    llm: 'LLM',
+    embedding: 'Embedding',
+  }
+  return labels[key]
 }
 
 function ConfigRow({
@@ -58,6 +78,7 @@ function ValueCode({ value }: { value: string | number | null | undefined }) {
 
 export function Settings() {
   const [data, setData] = useState<SystemConfig | null>(null)
+  const [health, setHealth] = useState<OpsHealthResponse | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -66,11 +87,11 @@ export function Settings() {
     queueMicrotask(() => {
       if (!alive) return
       setLoading(true)
-      api
-        .getSystemConfig()
-        .then((cfg) => {
+      Promise.all([api.getSystemConfig(), api.getOpsHealth()])
+        .then(([cfg, healthState]) => {
           if (alive) {
             setData(cfg)
+            setHealth(healthState)
             setError(null)
           }
         })
@@ -131,6 +152,31 @@ export function Settings() {
       </div>
 
       <div className="grid grid-cols-2 gap-6">
+        <Card className="bg-card border-border col-span-2">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Server className="w-4 h-4 text-primary" />
+              系统健康
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid grid-cols-4 gap-3">
+            {(['rag_service', 'qdrant', 'llm', 'embedding'] as const).map((key) => {
+              const item = health?.components[key]
+              return (
+                <div key={key} className="rounded-md border border-border bg-background p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium">{healthLabel(key)}</span>
+                    {healthBadge(item?.status)}
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {item?.latency_ms != null ? `${item.latency_ms} ms` : item?.detail || '-'}
+                  </p>
+                </div>
+              )
+            })}
+          </CardContent>
+        </Card>
+
         {/* LLM */}
         <Card className="bg-card border-border">
           <CardHeader className="pb-3">

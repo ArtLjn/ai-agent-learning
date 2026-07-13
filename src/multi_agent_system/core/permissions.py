@@ -24,11 +24,14 @@ ROLE_PERMISSIONS: dict[str, list[str]] = {
         "/", "/dashboard", "/tickets", "/tickets/:id", "/profile",
         "/reviews", "/knowledge", "/settings",
         "/admin/users", "/admin/audit-logs",
+        "/dev/prompts", "/dev/rag-debug", "/dev/agent-stats",
+        "/dev/traces", "/dev/tokens",
     ],
     "developer": [
         "/", "/tickets", "/tickets/:id", "/profile",
         "/monitor", "/settings",
-        "/dev/prompts", "/dev/agent-stats",
+        "/admin/users", "/admin/audit-logs",
+        "/dev/prompts", "/dev/rag-debug", "/dev/agent-stats",
         "/dev/traces", "/dev/tokens",
     ],
 }
@@ -90,6 +93,9 @@ def require_role(*allowed_roles: str):
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="未登录或会话已过期",
             )
+        from src.multi_agent_system.core.auth import _ensure_session_user_active
+
+        await _ensure_session_user_active(request, session_user)
 
         role = _resolve_role(session_user, settings.auth_enabled)
         if role not in allowed_roles:

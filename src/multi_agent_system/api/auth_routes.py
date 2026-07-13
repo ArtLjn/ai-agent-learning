@@ -37,8 +37,16 @@ def _parse_preferred_categories(raw: Any) -> list[str]:
         return []
 
 
+_ROLE_META: dict[str, dict[str, str]] = {
+    "user": {"role_scope": "employee", "role_label": "企业内部员工"},
+    "admin": {"role_scope": "service_desk", "role_label": "服务台处理人员"},
+    "developer": {"role_scope": "operations", "role_label": "系统运维人员"},
+}
+
+
 def public_user(user: dict[str, Any]) -> dict[str, Any]:
     """脱敏并标准化用户对象。"""
+    role = user.get("role", "user")
     return {
         "user_id": user.get("user_id"),
         "username": user.get("username"),
@@ -50,7 +58,8 @@ def public_user(user: dict[str, Any]) -> dict[str, Any]:
         ),
         "created_at": user.get("created_at"),
         "status": user.get("status", "active"),
-        "role": user.get("role", "user"),
+        "role": role,
+        **_ROLE_META.get(role, _ROLE_META["user"]),
     }
 
 
@@ -100,7 +109,6 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
     # 路径 2：DB-backed 用户
     db_manager = request.app.state.db_manager
     user = await db_manager.get_user_by_username(body.username)
-    print(f"DEBUG login path2: user={user is None=}, hash={'password_hash' in (user or {})}")
     if user is None or not user.get("password_hash"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
