@@ -190,7 +190,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
             aria-label="选择 mock 问题生成类型"
             className="h-8 w-full min-w-[112px] text-[11px] lg:w-[112px]"
           >
-            <SelectValue />
+            <SelectValue>{TICKET_CATEGORY_LABELS[mockCategory]}</SelectValue>
           </SelectTrigger>
           <SelectContent className="border-border bg-popover">
             {TICKET_CATEGORY_OPTIONS.map(option => (

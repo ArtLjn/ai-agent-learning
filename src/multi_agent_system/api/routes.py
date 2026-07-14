@@ -42,22 +42,64 @@ _global_ws_connections: list[WebSocket] = []
 
 _MOCK_CATEGORY_GUIDANCE = {
     TicketCategory.INQUIRY.value: {
-        "label": "咨询类",
-        "instruction": "生成咨询类问题：用户主要询问入口、规则、操作方法或使用说明，语气平和。避免生成系统故障、P0、投诉或退款语气。",
+        "label": "制度流程咨询",
+        "instruction": "生成制度流程咨询问题：员工主要询问公司制度、入口、审批材料、办理路径或操作方法。必须围绕云舟科技内部员工服务场景，不要生成系统运维、代码定位、RSS/OOM、退款订阅或外部客户问题。",
     },
     TicketCategory.TECHNICAL.value: {
-        "label": "技术类",
-        "instruction": "生成技术类问题：用户遇到报错、登录失败、页面异常、接口失败或性能问题。除非明确大范围不可用，否则不要默认写成 P0 紧急事故。",
+        "label": "IT 与办公支持",
+        "instruction": "生成 IT 与办公支持问题：员工遇到 CloudID、YunVPN、邮箱、电脑、打印机、会议室设备、网络或办公软件问题。不要生成后端代码、RSS 内存、Kubernetes、Redis、API 网关等运维研发问题。",
     },
     TicketCategory.BILLING.value: {
-        "label": "账务类",
-        "instruction": "生成账务类问题：用户围绕账单、扣费、退款、套餐、发票或支付记录求助，避免写成系统宕机。",
+        "label": "费用薪酬报销",
+        "instruction": "生成费用薪酬报销问题：员工围绕报销、差旅、餐补、工资单、社保公积金、发票、付款节点或 FinFlow/PeopleHub 状态求助。不要生成退款、订阅、套餐、外部付费产品问题。",
     },
     TicketCategory.COMPLAINT.value: {
-        "label": "投诉类",
-        "instruction": "生成投诉类问题：用户表达不满、服务体验差或要求反馈处理，但不要默认夸大成全站故障。",
+        "label": "风险投诉升级",
+        "instruction": "生成风险投诉升级问题：员工对服务台处理、行政服务、设备支持、安全合规、离职权限或数据风险表达不满或要求升级。不要生成外部客户投诉、全站故障或赔偿问题。",
     },
 }
+
+_MOCK_RAG_QUERY_BY_CATEGORY = {
+    TicketCategory.INQUIRY.value: "云舟科技 员工 制度 入口 审批 材料 办理 小舟助手 PeopleHub BuyDesk",
+    TicketCategory.TECHNICAL.value: "云舟科技 CloudID YunVPN 邮箱 电脑 打印机 会议室 网络 办公设备",
+    TicketCategory.BILLING.value: "云舟科技 报销 差旅 餐补 工资单 社保 公积金 FinFlow PeopleHub",
+    TicketCategory.COMPLAINT.value: "云舟科技 安全合规 DLP 设备丢失 离职权限 服务台 升级 投诉",
+}
+
+_EMPLOYEE_MOCK_KEYWORDS = (
+    "云舟",
+    "员工",
+    "小舟助手",
+    "PeopleHub",
+    "FinFlow",
+    "BuyDesk",
+    "AssetOne",
+    "CloudID",
+    "YunVPN",
+    "LearnHub",
+    "服务台",
+    "餐补",
+    "考勤",
+    "报销",
+    "工位",
+    "门禁",
+    "访客",
+    "薪酬",
+    "社保",
+    "公积金",
+    "合同",
+    "用印",
+    "培训",
+    "绩效",
+    "OKR",
+)
+
+_MOCK_FORBIDDEN_PATTERN = re.compile(
+    r"RSS|OOM|内存泄漏|内存上涨|Kubernetes|Redis|API\s*网关|数据库连接池|"
+    r"消息队列|CI/CD|Pod|CrashLoopBackOff|退款|订阅|套餐|外部客户|客户投诉|"
+    r"阿里云|OSS|商品|全站故障",
+    re.IGNORECASE,
+)
 
 
 def _parse_references(ticket: dict[str, Any]) -> list[str]:
@@ -208,7 +250,7 @@ def _pick_mock_question_document(
     """从知识库文档中随机选择一个可用于出题的文档。"""
     candidates = [
         doc for doc in docs
-        if isinstance(doc, dict) and _mock_doc_text(doc)
+        if isinstance(doc, dict) and _is_employee_mock_document(doc)
     ]
     if not candidates:
         return None
@@ -220,6 +262,85 @@ def _pick_mock_question_document(
         if same_category:
             candidates = same_category
     return random.SystemRandom().choice(candidates)
+
+
+async def _load_mock_question_documents(
+    request: Request,
+    category: str | None = None,
+) -> list[dict[str, Any]]:
+    """优先从 rag-service ticket_knowledge 检索员工知识库片段。"""
+    rag_client = getattr(request.app.state, "rag_client", None)
+    settings = getattr(request.app.state, "settings", Settings())
+    collection = getattr(settings, "rag_service_collection", "ticket_knowledge")
+    query = _MOCK_RAG_QUERY_BY_CATEGORY.get(
+        category or "",
+        "云舟科技 员工服务台 制度 办公 报销 权限 行政 IT 安全",
+    )
+
+    if rag_client is not None:
+        try:
+            chunks, _debug = await rag_client.retrieve(
+                query=query,
+                collection=collection,
+                mode="hybrid",
+                top_k=20,
+                use_hyde=False,
+            )
+            docs = [_mock_doc_from_rag_chunk(chunk) for chunk in chunks]
+            docs = [doc for doc in docs if _is_employee_mock_document(doc)]
+            if docs:
+                return docs
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"mock 工单读取 rag-service 失败，尝试本地知识库: {exc}")
+
+    knowledge_tool = getattr(request.app.state, "knowledge_tool", None)
+    try:
+        docs_resp = knowledge_tool.list_documents(limit=100) if knowledge_tool else {}
+        docs = docs_resp.get("documents", []) if isinstance(docs_resp, dict) else []
+        return [doc for doc in docs if isinstance(doc, dict)]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"mock 工单读取本地知识库失败，使用兜底问题: {exc}")
+        return []
+
+
+def _mock_doc_from_rag_chunk(chunk: Any) -> dict[str, Any]:
+    """把 rag-service 检索片段转成 mock 问题生成所需文档结构。"""
+    metadata = getattr(chunk, "metadata", {}) or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    content = str(getattr(chunk, "content", "") or "").strip()
+    source = str(metadata.get("source") or metadata.get("file_name") or "").strip()
+    title = str(metadata.get("title") or "").strip()
+    if not title and source:
+        title = source.rsplit("/", 1)[-1].replace(".md", "")
+    return {
+        "id": getattr(chunk, "id", None),
+        "title": title or "云舟科技员工服务知识",
+        "category": metadata.get("category") or source or "ticket_knowledge",
+        "source": source,
+        "content": content,
+        "preview": content,
+        "chunks": [{"content": content, "metadata": metadata}],
+    }
+
+
+def _is_employee_mock_document(doc: dict[str, Any]) -> bool:
+    """过滤旧技术运维或外部客服知识，避免生成不符合当前主题的问题。"""
+    text = " ".join(
+        str(value)
+        for value in (
+            doc.get("title"),
+            doc.get("category"),
+            doc.get("source"),
+            doc.get("preview"),
+            doc.get("content"),
+            _mock_doc_text(doc),
+        )
+        if value
+    )
+    if not text.strip() or _MOCK_FORBIDDEN_PATTERN.search(text):
+        return False
+    return any(keyword in text for keyword in _EMPLOYEE_MOCK_KEYWORDS)
 
 
 def _mock_doc_text(doc: dict[str, Any]) -> str:
@@ -254,12 +375,14 @@ async def _generate_mock_question_by_llm(
             {
                 "role": "system",
                 "content": (
-                    "你是工单演示数据生成 Agent。请根据给定知识库片段，"
-                    "生成一条真实用户会提交的中文工单问题。要求："
+                    "你是云舟科技员工服务台的演示数据生成 Agent。请根据给定知识库片段，"
+                    "生成一条企业内部员工会提交的中文服务请求。要求："
                     "1. 不要复述知识库答案；2. 像用户遇到问题在求助；"
                     "3. 30 到 80 字；4. 不要编号，不要解释，只输出问题本身；"
-                    "5. 可以自然包含焦虑、时间、影响范围或联系方式等细节；"
-                    f"6. 本次必须生成{category_label}工单。{category_instruction}"
+                    "5. 可以自然包含员工号、日期、平台名、审批单号或影响范围；"
+                    "6. 必须围绕云舟科技内部员工服务，不要写代码定位、RSS/OOM、"
+                    "Kubernetes、Redis、API 网关、退款订阅、外部客户或商品售后；"
+                    f"7. 本次必须生成{category_label}工单。{category_instruction}"
                 ),
             },
             {
@@ -281,7 +404,8 @@ async def _generate_mock_question_by_llm(
     choice = response.choices[0] if getattr(response, "choices", None) else None
     message = getattr(choice, "message", None)
     raw = getattr(message, "content", "") if message is not None else ""
-    return _clean_mock_question(str(raw))
+    question = _clean_mock_question(str(raw))
+    return question if _is_valid_employee_mock_question(question) else ""
 
 
 def _clean_mock_question(value: str) -> str:
@@ -294,6 +418,13 @@ def _clean_mock_question(value: str) -> str:
     return text[:120]
 
 
+def _is_valid_employee_mock_question(question: str) -> bool:
+    """校验 LLM 输出仍符合员工服务台主题。"""
+    if not question or _MOCK_FORBIDDEN_PATTERN.search(question):
+        return False
+    return any(keyword in question for keyword in _EMPLOYEE_MOCK_KEYWORDS)
+
+
 def _fallback_mock_question(
     doc: dict[str, Any] | None = None,
     category: str | None = None,
@@ -301,30 +432,30 @@ def _fallback_mock_question(
     """LLM 不可用时的随机兜底问题。"""
     if category == TicketCategory.INQUIRY.value:
         variants = [
-            "我想咨询一下本月工单报表应该在哪里导出，需要提前配置权限吗？",
-            "我想咨询这个功能的具体使用步骤，现在不太确定应该从哪个入口开始操作。",
-            "我想咨询当前规则适用于哪些场景，需要准备哪些信息才能继续办理？",
+            "我想咨询云舟科技加班餐补在哪里查看，需要先提交钉钉加班审批吗？",
+            "新员工入职第一天找不到制度入口，小舟助手和云舟员工门户应该用哪个？",
+            "办公用品和软件许可证分别在哪个平台申请，需要准备哪些审批材料？",
         ]
         return random.SystemRandom().choice(variants)
     if category == TicketCategory.TECHNICAL.value:
         variants = [
-            "我刚才打开页面时一直提示请求失败，刷新后还是不稳定，请帮我排查原因。",
-            "登录后部分功能加载很慢，偶尔会报错，请帮我看下是不是配置异常。",
-            "提交表单时页面没有成功反馈，我担心数据没保存，请帮我确认处理办法。",
+            "我今天登录 CloudID 后提示 MFA 验证失败，换了手机后进不了 PeopleHub，请帮忙处理。",
+            "YunVPN 显示已连接，但打不开云舟员工门户和 FinFlow，麻烦帮我排查。",
+            "上海 A 座 4F 打印机一直显示离线，影响我打印合同材料，请帮忙看看。",
         ]
         return random.SystemRandom().choice(variants)
     if category == TicketCategory.BILLING.value:
         variants = [
-            "我想核对一下最近的扣费记录，账单金额和预期不一致，请帮我确认原因。",
-            "付款后套餐状态还没更新，请帮我看下支付记录是否已经同步。",
-            "我需要申请发票，但页面上找不到对应入口，请帮我说明办理步骤。",
+            "我昨晚加班审批已通过，但 PeopleHub 里没有餐补记录，请帮我核查。",
+            "FinFlow 报销单被退回，提示发票抬头不一致，我需要补哪些材料？",
+            "本月工资单里社保公积金城市显示不对，想请 HR 薪酬福利组确认。",
         ]
         return random.SystemRandom().choice(variants)
     if category == TicketCategory.COMPLAINT.value:
         variants = [
-            "我对这次处理结果不太满意，已经多次反馈还没有解决，请帮我升级跟进。",
-            "客服回复没有解决我的问题，等待时间也比较长，请安排人员重新处理。",
-            "这次服务体验不符合预期，我希望有人确认问题原因并给出明确答复。",
+            "离职同事还能访问 CloudID 和财务系统，这个风险比较高，请尽快升级处理。",
+            "我反馈会议室设备故障两次都没人处理，今天客户会议又受影响，请升级跟进。",
+            "DLP 拦截后我不确定是否误报，但服务台回复不清楚，希望安全团队确认。",
         ]
         return random.SystemRandom().choice(variants)
     if doc:
@@ -479,15 +610,8 @@ async def generate_mock_ticket_question(
     _role_check: dict = Depends(require_role("user")),
 ) -> dict:
     """基于知识库随机片段生成一条自然用户口吻的 mock 工单问题。"""
-    knowledge_tool = getattr(request.app.state, "knowledge_tool", None)
     requested_category = category.value if category else None
-
-    try:
-        docs_resp = knowledge_tool.list_documents(limit=100) if knowledge_tool else {}
-        docs = docs_resp.get("documents", []) if isinstance(docs_resp, dict) else []
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"mock 工单读取知识库失败，使用兜底问题: {exc}")
-        docs = []
+    docs = await _load_mock_question_documents(request, requested_category)
 
     doc = _pick_mock_question_document(docs, requested_category)
     if doc is None:
