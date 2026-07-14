@@ -529,25 +529,9 @@ async def create_ticket(
     _role_check: dict = Depends(require_role("user")),
 ) -> dict:
     """提交新工单，由 Agent 理解用户意图后触发工作流。"""
-    intent_agent = getattr(request.app.state, "ticket_intent_agent", None)
-    if intent_agent is None:
-        intent = TicketIntentAgent.extract_by_fallback(body.content)
-    else:
-        try:
-            intent = await intent_agent.extract(body.content)
-        except Exception as e:
-            logger.warning(f"工单意图理解失败，使用本地规则兜底: {e}")
-            intent = TicketIntentAgent.extract_by_fallback(body.content)
-
-    state = create_initial_state(content=intent["content"])
-    state["category"] = intent.get("category")
-    state["priority"] = intent.get("priority")
-    state["risk_level"] = intent.get("risk_level")
-    state["requires_human_review"] = intent.get("requires_human_review")
-    state["risk_reason"] = intent.get("risk_reason")
+    state = create_initial_state(content=body.content)
     ticket_id = state["ticket_id"]
 
-    # 保存初始状态到数据库
     db_tool = request.app.state.db_tool
 
     # user_id 优先取登录 session（防伪造），演示模式或前端显式传入时才用 body.user_id
@@ -558,6 +542,59 @@ async def create_ticket(
         if session_user and session_user.get("user_id")
         else (body.user_id or "anonymous")
     )
+
+    # 先保存原始工单，让入口 Intent 的 token 统计可以反查到 ticket/user。
+    await db_tool.save_ticket({
+        "ticket_id": ticket_id,
+        "content": body.content,
+        "user_id": effective_user_id,
+        "service_type": body.service_type,
+        "key_materials": body.key_materials,
+        "status": state["status"],
+        "created_at": datetime.now().isoformat(),
+    })
+
+    trace_manager = getattr(request.app.state, "trace_manager", None)
+    trace_id = None
+    if trace_manager is not None:
+        trace_id = await trace_manager.start_trace(ticket_id)
+        state["__trace_id__"] = trace_id
+
+    intent_agent = getattr(request.app.state, "ticket_intent_agent", None)
+
+    async def _resolve_intent() -> dict:
+        if intent_agent is None:
+            return TicketIntentAgent.extract_by_fallback(body.content)
+        try:
+            return await intent_agent.extract(body.content)
+        except Exception as e:
+            logger.warning(f"工单意图理解失败，使用本地规则兜底: {e}")
+            return TicketIntentAgent.extract_by_fallback(body.content)
+
+    if trace_manager is not None:
+        async with trace_manager.start_span(
+            "intent",
+            "node",
+            input_data={"content": body.content},
+            trace_id=trace_id,
+        ) as span:
+            intent = await _resolve_intent()
+            span.set_output({
+                "category": intent.get("category"),
+                "priority": intent.get("priority"),
+                "risk_level": intent.get("risk_level"),
+                "requires_human_review": intent.get("requires_human_review"),
+                "fallback": intent_agent is None,
+            })
+    else:
+        intent = await _resolve_intent()
+
+    state["content"] = intent["content"]
+    state["category"] = intent.get("category")
+    state["priority"] = intent.get("priority")
+    state["risk_level"] = intent.get("risk_level")
+    state["requires_human_review"] = intent.get("requires_human_review")
+    state["risk_reason"] = intent.get("risk_reason")
 
     ticket_data = {
         "ticket_id": ticket_id,

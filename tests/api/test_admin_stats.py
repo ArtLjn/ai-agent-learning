@@ -230,6 +230,24 @@ def test_seeded_spans_aggregate_correctly(
     assert 0.0 < by_name["classify"]["success_rate"] < 1.0
 
 
+def test_intent_span_aggregate_correctly(
+    client: TestClient, app: FastAPI
+) -> None:
+    """种 intent span → Intent 调用次数应可见，不依赖 token_daily_stats。"""
+    admin = _register(client, "admin1")
+    _promote(client, app, admin["user_id"], "developer")
+    db: DatabaseManager = app.state.db_manager
+
+    client.portal.call(_seed_intent_span, db)
+
+    resp = client.get("/api/admin/stats/agents?days=7")
+    body = resp.json()
+    by_name = {a["agent_name"]: a for a in body["agents"]}
+    assert by_name["intent"]["call_count"] == 1
+    assert by_name["intent"]["success_rate"] == 1.0
+    assert by_name["intent"]["total_tokens"] == 0
+
+
 async def _seed_3_spans(db: DatabaseManager) -> None:
     """在 portal（async loop）里同步运行：3 个 classify span。"""
     import time
@@ -255,6 +273,26 @@ async def _seed_3_spans(db: DatabaseManager) -> None:
         })
 
 
+async def _seed_intent_span(db: DatabaseManager) -> None:
+    """种 1 个 intent span。"""
+    import time
+
+    now = time.time()
+    await db.save_span({
+        "span_id": "span-intent-001",
+        "trace_id": "trace-intent-001",
+        "parent_span_id": None,
+        "span_type": "node",
+        "name": "intent",
+        "status": "ok",
+        "input_data": "{}",
+        "output_data": "{}",
+        "start_time": now,
+        "end_time": now + 0.2,
+        "duration": 0.2,
+    })
+
+
 def test_seeded_token_daily_stats_aggregate(
     client: TestClient, app: FastAPI
 ) -> None:
@@ -271,6 +309,25 @@ def test_seeded_token_daily_stats_aggregate(
     # call_type=classify 的总 token = 100 + 200 = 300
     assert by_name["classify"]["total_tokens"] == 300
     assert by_name["classify"]["request_count"] == 2
+
+
+def test_intent_call_count_falls_back_to_token_request_count(
+    client: TestClient, app: FastAPI
+) -> None:
+    """intent 没有 node span 时，用 token_daily_stats.request_count 补齐调用次数。"""
+    admin = _register(client, "admin1")
+    _promote(client, app, admin["user_id"], "developer")
+    db: DatabaseManager = app.state.db_manager
+
+    client.portal.call(_seed_intent_token_rows, db)
+
+    resp = client.get("/api/admin/stats/agents?days=7")
+    body = resp.json()
+    by_name = {a["agent_name"]: a for a in body["agents"]}
+    assert by_name["intent"]["call_count"] == 2
+    assert by_name["intent"]["success_rate"] == 1.0
+    assert by_name["intent"]["total_tokens"] == 300
+    assert by_name["intent"]["request_count"] == 2
 
 
 async def _seed_token_rows(db: DatabaseManager) -> None:
@@ -294,6 +351,30 @@ async def _seed_token_rows(db: DatabaseManager) -> None:
         ticket_id=None,
         prompt_tokens=120,
         completion_tokens=80,
+    )
+
+
+async def _seed_intent_token_rows(db: DatabaseManager) -> None:
+    """种 2 行 token_daily_stats（call_type=intent）。"""
+    from datetime import date
+
+    await db.accumulate_token_daily_stats(
+        user_id=None,
+        date_value=date.today(),
+        model="gpt-test",
+        call_type="intent",
+        ticket_id=None,
+        prompt_tokens=80,
+        completion_tokens=20,
+    )
+    await db.accumulate_token_daily_stats(
+        user_id=None,
+        date_value=date.today(),
+        model="gpt-test",
+        call_type="intent",
+        ticket_id=None,
+        prompt_tokens=150,
+        completion_tokens=50,
     )
 
 

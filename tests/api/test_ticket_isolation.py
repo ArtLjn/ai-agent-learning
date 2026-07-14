@@ -22,9 +22,24 @@ from starlette.middleware.sessions import SessionMiddleware
 from src.multi_agent_system.api.auth_routes import router as auth_router
 from src.multi_agent_system.api.routes import router as biz_router
 from src.multi_agent_system.core.database import DatabaseManager
+from src.multi_agent_system.core.trace import TraceManager
 from tests.conftest import TEST_DATABASE_URL
 
 _SESSION_SECRET = "test-ticket-isolation-secret-32-chars-or-more"
+
+
+class _StaticIntentAgent:
+    """测试用 Intent Agent，避免真实 LLM 调用。"""
+
+    async def extract(self, content: str) -> dict[str, Any]:
+        return {
+            "content": content,
+            "category": "technical",
+            "priority": "P2",
+            "risk_level": "low",
+            "requires_human_review": False,
+            "risk_reason": "",
+        }
 
 
 def _build_app() -> FastAPI:
@@ -202,6 +217,29 @@ class TestCreateTicketUserIdInjection:
         assert resp.status_code == 422
         tickets = client.portal.call(app.state.db_manager.list_tickets)
         assert tickets == []
+
+    def test_create_records_intent_span_before_workflow_starts(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """提交工单时，入口 Intent 调用应写入当前工单 trace。"""
+        _register(client, "alice")
+        app.state.trace_manager = TraceManager(app.state.db_manager)
+        app.state.ticket_intent_agent = _StaticIntentAgent()
+
+        resp = client.post(
+            "/api/tickets",
+            json={"content": "企业邮箱登录失败，请帮我恢复访问"},
+        )
+
+        assert resp.status_code == 200, resp.text
+        ticket_id = resp.json()["ticket_id"]
+        trace = client.portal.call(app.state.db_manager.get_trace_by_ticket, ticket_id)
+        assert trace is not None
+        spans = client.portal.call(app.state.db_manager.get_spans_by_trace, trace["trace_id"])
+        intent_spans = [span for span in spans if span["name"] == "intent"]
+        assert len(intent_spans) == 1
+        assert intent_spans[0]["span_type"] == "node"
+        assert intent_spans[0]["status"] == "ok"
 
 
 class TestListTicketsIsolation:

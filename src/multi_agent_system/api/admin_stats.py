@@ -12,9 +12,9 @@ GET /api/admin/stats/agents?days=7
 - request_count: token_daily_stats.request_count 之和
 
 数据源：
-- spans 表（name=classify/process/review/escalate）—— 4 个 span 名
+- spans 表（name=intent/classify/process/review/escalate）
 - token_daily_stats 表 call_type 列（intent/classify/process/review/coordinator）
-- intent 没有 span，只取 token_daily_stats 数据；如果 token 数据也无则全 0
+- 老数据可能没有 intent span，此时用 token_daily_stats.request_count 兜底
 """
 
 from datetime import datetime, timedelta
@@ -30,9 +30,9 @@ __all__ = ["router"]
 router = APIRouter(prefix="/admin/stats", tags=["admin-stats"])
 
 
-# Agent 名 → span name 映射（intent 没有专门 span，留空）
+# Agent 名 → span name 映射
 _AGENT_SPAN_NAME: dict[str, str | None] = {
-    "intent": None,
+    "intent": "intent",
     "classify": "classify",
     "process": "process",
     "review": "review",
@@ -179,6 +179,14 @@ async def get_agent_stats(
 
         span_stats = await _aggregate_spans(db_manager, span_name, since)
         token_stats = await _aggregate_tokens(db_manager, call_type, since)
+        if (
+            agent_name == "intent"
+            and span_stats["call_count"] == 0
+            and token_stats["request_count"] > 0
+        ):
+            # 兼容旧数据：历史版本没有 intent node span，用 LLM 请求数兜底表示调用量。
+            span_stats["call_count"] = token_stats["request_count"]
+            span_stats["success_rate"] = 1.0
 
         agents_out.append({
             "agent_name": agent_name,

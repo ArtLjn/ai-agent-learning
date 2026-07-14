@@ -119,7 +119,7 @@ export function AgentCallStats() {
                   <TableHead className="text-right">成功率</TableHead>
                   <TableHead className="text-right">错误数</TableHead>
                   <TableHead className="text-right">Tokens</TableHead>
-                  <TableHead className="text-right">请求数</TableHead>
+                  <TableHead className="text-right">LLM 请求</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -136,7 +136,7 @@ export function AgentCallStats() {
                       {s.max_duration_ms.toFixed(1)} ms
                     </TableCell>
                     <TableCell className="text-right">
-                      <SuccessBadge rate={s.success_rate} />
+                      <SuccessBadge rate={s.success_rate} hasActivity={hasAgentActivity(s)} />
                     </TableCell>
                     <TableCell className="text-right font-mono">
                       {s.error_count > 0 ? (
@@ -146,9 +146,11 @@ export function AgentCallStats() {
                       )}
                     </TableCell>
                     <TableCell className="text-right font-mono">
-                      {s.total_tokens.toLocaleString()}
+                      <OptionalUsageValue entry={s} value={s.total_tokens.toLocaleString()} />
                     </TableCell>
-                    <TableCell className="text-right font-mono">{s.request_count}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      <OptionalUsageValue entry={s} value={String(s.request_count)} />
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -161,8 +163,12 @@ export function AgentCallStats() {
 }
 
 function StatCard({ entry }: { entry: AgentStatEntry }) {
+  const hasActivity = hasAgentActivity(entry)
+  const hasUsage = hasLlmUsage(entry)
   const color =
-    entry.success_rate >= 0.95
+    !hasActivity
+      ? 'bg-slate-500/15 text-slate-300 border-slate-500/30'
+      : entry.success_rate >= 0.95
       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
       : entry.success_rate >= 0.8
       ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
@@ -173,7 +179,9 @@ function StatCard({ entry }: { entry: AgentStatEntry }) {
       <CardHeader className="pb-2">
         <CardTitle className="text-sm flex items-center justify-between">
           <span>{AGENT_LABEL[entry.agent_name]}</span>
-          <Badge className={color}>{(entry.success_rate * 100).toFixed(1)}%</Badge>
+          <Badge className={color}>
+            {hasActivity ? `${(entry.success_rate * 100).toFixed(1)}%` : '无调用'}
+          </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2 text-xs">
@@ -199,9 +207,14 @@ function StatCard({ entry }: { entry: AgentStatEntry }) {
           <span className="text-muted-foreground flex items-center gap-1">
             <Coins className="w-3 h-3" /> Tokens
           </span>
-          <span className="font-mono">{entry.total_tokens.toLocaleString()}</span>
+          <span
+            className={hasUsage ? 'font-mono' : 'font-mono text-muted-foreground'}
+            title={hasUsage ? undefined : '最近范围内没有记录到 LLM 请求'}
+          >
+            {hasUsage ? entry.total_tokens.toLocaleString() : '—'}
+          </span>
         </div>
-        {entry.call_count === 0 && entry.total_tokens === 0 && (
+        {!hasActivity && (
           <p className="text-[10px] text-muted-foreground italic pt-1 border-t border-border">
             最近无调用
           </p>
@@ -211,7 +224,11 @@ function StatCard({ entry }: { entry: AgentStatEntry }) {
   )
 }
 
-function SuccessBadge({ rate }: { rate: number }) {
+function SuccessBadge({ rate, hasActivity }: { rate: number; hasActivity: boolean }) {
+  if (!hasActivity) {
+    return <Badge className="bg-slate-500/15 text-slate-300 border-slate-500/30">无调用</Badge>
+  }
+
   const cls =
     rate >= 0.95
       ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
@@ -224,5 +241,29 @@ function SuccessBadge({ rate }: { rate: number }) {
     <Badge className={cls}>
       {(rate * 100).toFixed(1)}%
     </Badge>
+  )
+}
+
+function OptionalUsageValue({ entry, value }: { entry: AgentStatEntry; value: string }) {
+  if (hasLlmUsage(entry)) {
+    return <>{value}</>
+  }
+  return (
+    <span className="text-muted-foreground" title="最近范围内没有记录到 LLM 请求">
+      —
+    </span>
+  )
+}
+
+function hasAgentActivity(entry: AgentStatEntry) {
+  return entry.call_count > 0 || hasLlmUsage(entry)
+}
+
+function hasLlmUsage(entry: AgentStatEntry) {
+  return (
+    entry.request_count > 0 ||
+    entry.total_tokens > 0 ||
+    entry.prompt_tokens > 0 ||
+    entry.completion_tokens > 0
   )
 }

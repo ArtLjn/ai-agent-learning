@@ -513,17 +513,16 @@ async def receive(state: TicketState) -> dict:
     """初始化工单状态，加载用户长期记忆。"""
     global _active_trace_id  # noqa: PLW0603
     with log_context(agent="receive"):
-        # 启动 trace，并将 trace_id 写回 state 供后续节点恢复 context
-        trace_id = None
-        if _trace_manager is not None:
+        # 入口 create_ticket 可能已经为 Intent 阶段创建了 trace；优先复用它。
+        trace_id = state.get("__trace_id__")
+        if trace_id is not None:
+            _restore_trace_context(state)
+        elif _trace_manager is not None:
             trace_id = await _trace_manager.start_trace(state["ticket_id"])
             from src.multi_agent_system.core.trace import current_trace_id
 
             current_trace_id.set(trace_id)
             _active_trace_id = trace_id
-
-        # 恢复 trace context（从 state 中读取，兼容后台 task 场景）
-        _restore_trace_context(state)
 
         async with _span("receive", input_data={"content": state["content"]}) as span:
             # Load user context if user_id present
