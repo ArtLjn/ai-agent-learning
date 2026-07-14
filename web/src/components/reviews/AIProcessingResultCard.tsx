@@ -1,5 +1,6 @@
 import { Brain } from 'lucide-react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Markdown } from '@/components/ui/markdown'
 
 interface Props {
   processingResult: string | null
@@ -36,9 +37,9 @@ export function AIProcessingResultCard({ processingResult, reviewScore }: Props)
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">处理结果</p>
-          <p className="rounded-md border border-border bg-background p-2.5 text-sm leading-relaxed whitespace-pre-wrap min-h-[60px]">
-            {processingResult || '（暂无 AI 处理结果）'}
-          </p>
+          <div className="rounded-md border border-border bg-background p-2.5 min-h-[60px]">
+            <Markdown>{processingResult || '（暂无 AI 处理结果）'}</Markdown>
+          </div>
         </div>
       </CardContent>
     </Card>

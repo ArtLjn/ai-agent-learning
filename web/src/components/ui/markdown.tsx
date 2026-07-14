@@ -10,6 +10,7 @@
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
+import { normalizeMarkdownText } from '@/lib/markdownText'
 
 interface MarkdownProps {
   children: string
@@ -17,6 +18,8 @@ interface MarkdownProps {
 }
 
 export function Markdown({ children, className }: MarkdownProps) {
+  const normalized = normalizeMarkdownText(children)
+
   return (
     <div
       className={cn(
@@ -39,7 +42,7 @@ export function Markdown({ children, className }: MarkdownProps) {
         className,
       )}
     >
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{children}</ReactMarkdown>
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalized}</ReactMarkdown>
     </div>
   )
 }
