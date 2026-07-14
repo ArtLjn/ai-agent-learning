@@ -9,16 +9,16 @@ import {
 
 test('用户视角只展示原始提交内容', () => {
   const content = [
-    '【问题标题】阿里云OSS杭州节点不明扣费咨询',
-    '【问题类型】账务问题',
+    '【问题标题】加班餐补未发放咨询',
+    '【问题类型】费用薪酬报销',
     '【风险等级】low',
-    '【Agent判断】用户明确提出账单问题，置信度 0.95',
-    '【原始描述】我对接了阿里云OSS，最近发现账单里多了一笔不明扣费，请问这是存储还是请求费用？',
+    '【Agent判断】员工明确提出补贴核查问题，置信度 0.95',
+    '【原始描述】我昨晚加班到 22:30，钉钉加班审批已通过，但 PeopleHub 里没有餐补记录。',
   ].join('\n')
 
   assert.equal(
     extractUserTicketContent(content),
-    '我对接了阿里云OSS，最近发现账单里多了一笔不明扣费，请问这是存储还是请求费用？',
+    '我昨晚加班到 22:30，钉钉加班审批已通过，但 PeopleHub 里没有餐补记录。',
   )
 })
 
@@ -55,7 +55,8 @@ test('员工进度文案不暴露内部智能处理术语', () => {
 })
 
 test('服务类型返回员工可理解的关键材料提示', () => {
-  assert.match(getKeyMaterialPrompt('account_access').helperText, /账号|系统/)
-  assert.match(getKeyMaterialPrompt('office_device').helperText, /设备|故障/)
+  assert.match(getKeyMaterialPrompt('account_access').helperText, /CloudID|权限/)
+  assert.match(getKeyMaterialPrompt('it_network_device').helperText, /YunVPN|设备/)
+  assert.match(getKeyMaterialPrompt('legal_contract').helperText, /合同|用印/)
   assert.match(getKeyMaterialPrompt('unknown').helperText, /可选/)
 })

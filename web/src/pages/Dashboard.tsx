@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CategoryBadge, PriorityBadge, StatusBadge } from '@/components/layout/StatusBadge'
+import { TICKET_CATEGORY_LABELS } from '@/lib/ticketPresentation'
 import type { Analytics, DailyStat, EfficiencyStats, ResolutionStats, Ticket } from '@/types'
 import {
   AlertTriangle,
@@ -29,10 +30,7 @@ import {
 const COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f85149', '#a371f7', '#8b949e']
 
 const categoryLabels: Record<string, string> = {
-  technical: '技术支持',
-  billing: '账务问题',
-  complaint: '投诉建议',
-  inquiry: '咨询问询',
+  ...TICKET_CATEGORY_LABELS,
   uncategorized: '未分类',
 }
 

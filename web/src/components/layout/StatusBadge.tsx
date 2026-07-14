@@ -1,4 +1,5 @@
 import { Badge } from '@/components/ui/badge'
+import { TICKET_CATEGORY_LABELS } from '@/lib/ticketPresentation'
 import { cn } from '@/lib/utils'
 
 const statusStyles: Record<string, string> = {
@@ -30,13 +31,6 @@ const categoryStyles: Record<string, string> = {
   inquiry: 'bg-success/15 text-success',
 }
 
-const categoryLabels: Record<string, string> = {
-  technical: '技术支持',
-  billing: '账务问题',
-  complaint: '投诉建议',
-  inquiry: '咨询问询',
-}
-
 const priorityStyles: Record<string, string> = {
   P0: 'bg-destructive/15 text-destructive',
   P1: 'bg-warning/15 text-warning',
@@ -55,7 +49,7 @@ export function StatusBadge({ status }: { status: string }) {
 export function CategoryBadge({ category }: { category: string }) {
   return (
     <Badge variant="outline" className={cn('border-0 font-medium', categoryStyles[category] || 'bg-secondary')}>
-      {categoryLabels[category] || category}
+      {TICKET_CATEGORY_LABELS[category] || category}
     </Badge>
   )
 }

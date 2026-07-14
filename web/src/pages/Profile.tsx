@@ -9,10 +9,10 @@ import { toast } from '@/lib/toast'
 import type { TicketCategory, UserProfile } from '@/types'
 
 const ALL_CATEGORIES: { value: TicketCategory; label: string }[] = [
-  { value: 'technical', label: '技术类' },
-  { value: 'billing', label: '账务类' },
-  { value: 'complaint', label: '投诉类' },
-  { value: 'inquiry', label: '咨询类' },
+  { value: 'technical', label: 'IT 与办公支持' },
+  { value: 'billing', label: '费用薪酬报销' },
+  { value: 'complaint', label: '风险投诉升级' },
+  { value: 'inquiry', label: '制度流程咨询' },
 ]
 
 export function Profile() {

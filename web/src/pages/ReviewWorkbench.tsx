@@ -182,10 +182,10 @@ export function ReviewWorkbench() {
               </SelectTrigger>
               <SelectContent className="bg-popover border-border">
                 <SelectItem value="all">全部分类</SelectItem>
-                <SelectItem value="technical">技术支持</SelectItem>
-                <SelectItem value="billing">账务问题</SelectItem>
-                <SelectItem value="complaint">投诉建议</SelectItem>
-                <SelectItem value="inquiry">咨询问询</SelectItem>
+                <SelectItem value="technical">IT 与办公支持</SelectItem>
+                <SelectItem value="billing">费用薪酬报销</SelectItem>
+                <SelectItem value="complaint">风险投诉升级</SelectItem>
+                <SelectItem value="inquiry">制度流程咨询</SelectItem>
               </SelectContent>
             </Select>
             <Select value={priorityFilter} onValueChange={(v) => setPriorityFilter(v === 'all' ? '' : (v ?? ''))}>

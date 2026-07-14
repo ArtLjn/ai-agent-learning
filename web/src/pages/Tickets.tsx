@@ -3,7 +3,13 @@ import { useNavigate } from 'react-router-dom'
 import { useTickets, useCreateTicket } from '@/hooks/useApi'
 import { api } from '@/lib/api'
 import { canCreateEmployeeTicket } from '@/lib/ticketDetailPermissions'
-import { getKeyMaterialPrompt, SERVICE_TYPE_OPTIONS } from '@/lib/ticketPresentation'
+import {
+  getKeyMaterialPrompt,
+  getServiceTypeLabel,
+  SERVICE_TYPE_OPTIONS,
+  TICKET_CATEGORY_LABELS,
+  TICKET_CATEGORY_OPTIONS,
+} from '@/lib/ticketPresentation'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,21 +31,6 @@ import {
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50]
 
-const MOCK_CATEGORY_OPTIONS: Array<{ value: TicketCategory; label: string }> = [
-  { value: 'inquiry', label: '咨询问询' },
-  { value: 'technical', label: '技术支持' },
-  { value: 'billing', label: '账务问题' },
-  { value: 'complaint', label: '投诉建议' },
-]
-
-const MOCK_CATEGORY_LABELS = MOCK_CATEGORY_OPTIONS.reduce<Record<TicketCategory, string>>(
-  (acc, option) => {
-    acc[option.value] = option.label
-    return acc
-  },
-  {} as Record<TicketCategory, string>,
-)
-
 const EXAMPLE_PROMPTS = [
   '我是新员工，今天入职后还没有邮箱和 VPN 权限，钉钉里也找不到制度入口，请帮忙处理',
   '昨晚加班到 22:30，钉钉加班审批已通过，但没有看到餐补记录，请帮忙核查',
@@ -53,7 +44,7 @@ interface AgentTicketComposerProps {
 
 export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketComposerProps) {
   const [content, setContent] = useState('')
-  const [serviceType, setServiceType] = useState('account_access')
+  const [serviceType, setServiceType] = useState('onboarding')
   const [keyMaterials, setKeyMaterials] = useState('')
   const [mockPrompt, setMockPrompt] = useState('')
   const [mockSource, setMockSource] = useState<string>('')
@@ -83,7 +74,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
       const result = await api.generateMockTicketQuestion(mockCategory)
       setMockPrompt(result.prompt)
       setContent(result.prompt)
-      const categoryLabel = result.category ? MOCK_CATEGORY_LABELS[result.category] : MOCK_CATEGORY_LABELS[mockCategory]
+      const categoryLabel = result.category ? TICKET_CATEGORY_LABELS[result.category] : TICKET_CATEGORY_LABELS[mockCategory]
       setMockSource(result.knowledge_title
         ? `${categoryLabel} · ${result.generation_mode === 'llm' ? '智能生成' : '兜底生成'} · ${result.knowledge_title}`
         : `${categoryLabel} · 兜底生成`)
@@ -113,7 +104,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
                 </Badge>
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                选择服务类型并描述问题，系统会整理处理方向并进入服务台流程。
+                选择服务事项并描述问题，系统会整理处理方向并进入云舟服务台流程。
               </p>
             </div>
           </div>
@@ -127,14 +118,14 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
       <div className="mb-3 grid gap-3 lg:grid-cols-[220px_1fr]">
         <div className="space-y-1.5">
           <label htmlFor={compact ? 'ticket-service-type-compact' : 'ticket-service-type'} className="text-xs font-medium text-foreground">
-            服务类型
+            服务事项
           </label>
           <Select
             value={serviceType}
             onValueChange={(value) => setServiceType(value || 'other')}
           >
             <SelectTrigger id={compact ? 'ticket-service-type-compact' : 'ticket-service-type'} className="h-9 text-sm">
-              <SelectValue />
+              <SelectValue>{getServiceTypeLabel(serviceType)}</SelectValue>
             </SelectTrigger>
             <SelectContent className="border-border bg-popover">
               {SERVICE_TYPE_OPTIONS.map(option => (
@@ -189,7 +180,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
       <div className="mt-3 grid gap-2 lg:grid-cols-[auto_auto_auto_auto_auto_1fr] lg:items-center">
         <span className="text-[11px] text-muted-foreground">系统将辅助整理：</span>
         <Badge variant="secondary" className="w-fit text-[10px]">问题标题</Badge>
-        <Badge variant="secondary" className="w-fit text-[10px]">分类</Badge>
+        <Badge variant="secondary" className="w-fit text-[10px]">服务归类</Badge>
         <Badge variant="secondary" className="w-fit text-[10px]">优先级</Badge>
         <Select
           value={mockCategory}
@@ -202,7 +193,7 @@ export function AgentTicketComposer({ compact = false, onCreated }: AgentTicketC
             <SelectValue />
           </SelectTrigger>
           <SelectContent className="border-border bg-popover">
-            {MOCK_CATEGORY_OPTIONS.map(option => (
+            {TICKET_CATEGORY_OPTIONS.map(option => (
               <SelectItem key={option.value} value={option.value}>
                 {option.label}
               </SelectItem>
@@ -401,10 +392,11 @@ export function Tickets() {
               </SelectTrigger>
               <SelectContent className="border-border bg-popover">
                 <SelectItem value="all">全部分类</SelectItem>
-                <SelectItem value="technical">技术支持</SelectItem>
-                <SelectItem value="billing">账务问题</SelectItem>
-                <SelectItem value="complaint">投诉建议</SelectItem>
-                <SelectItem value="inquiry">咨询问询</SelectItem>
+                {TICKET_CATEGORY_OPTIONS.map(option => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
             <Button variant="outline" size="sm" onClick={() => refetch()}>

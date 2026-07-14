@@ -64,10 +64,10 @@ const nodeTypeIcons: Record<string, typeof Cpu> = {
 }
 
 const categoryLabels: Record<string, string> = {
-  technical: '技术问题',
-  billing: '计费退款',
-  complaint: '投诉建议',
-  inquiry: '咨询问答',
+  technical: 'IT 与办公支持',
+  billing: '费用薪酬报销',
+  complaint: '风险投诉升级',
+  inquiry: '制度流程咨询',
 }
 
 const PAGE_SIZE_OPTIONS = [5, 10, 20]
