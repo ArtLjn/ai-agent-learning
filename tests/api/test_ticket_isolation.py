@@ -368,6 +368,77 @@ class TestTicketDetailIsolation:
         assert body["review_score"] is None
         assert body["references"] == []
 
+    def test_user_detail_answers_company_name_without_internal_context(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """员工问公司名称时，只返回可读答案，不暴露内部检索和旧模板。"""
+        alice = _register(client, "alice")
+        raw_result = (
+            "您好，已根据现有资料整理出一组可先核对的方向。目前还缺少可直接确认最终答案的具体业务细则，"
+            "可以先按以下方向核对：\n\n"
+            "可参考的资料要点：| P3 | 单个员工常规问题 | 4 工作小时响应 | "
+            "工单提交人默认为公司内部员工,服务台负责人工审核兜底,系统运维管理端负责查看 Trace、状态机、RAG、"
+            "Prompt 和 Token。 本知识库模拟公司为“云舟科技有限公司”。 |\n\n"
+            "1. 确认产品或平台、应用类型、账号权限与本次咨询对象是否一致。\n"
+            "2. 对接或配置类问题，优先核对 Key/Secret、应用标识、白名单、服务开通状态和接口返回码。\n"
+            "需要人工确认：具体业务细则。"
+        )
+        _seed_ticket(
+            app,
+            "TK-alice-company-name",
+            alice["user_id"],
+            content=(
+                "【问题标题】公司名称咨询\n"
+                "【问题类型】咨询问询\n"
+                "【Agent判断】用户询问公司名称，置信度 0.95\n"
+                "【原始描述】你好公司叫啥呀"
+            ),
+            processing_result=raw_result,
+        )
+
+        resp = client.get("/api/tickets/TK-alice-company-name")
+        assert resp.status_code == 200
+        result = resp.json()["processing_result"]
+        assert result == "您好，公司名称是云舟科技有限公司。"
+        assert "|" not in result
+        assert "Trace" not in result
+        assert "RAG" not in result
+        assert "Prompt" not in result
+        assert "Token" not in result
+        assert "Key/Secret" not in result
+        assert "白名单" not in result
+
+    def test_user_detail_hides_reference_document_names(
+        self, client: TestClient, app: FastAPI
+    ) -> None:
+        """员工侧历史结果清洗不展示参考文档、文件名和知识库来源。"""
+        alice = _register(client, "alice")
+        raw_result = (
+            "知识库参考：检索到以下知识片段：1. 标题: company-service-handbook.md；分类: inquiry；"
+            "相似度: 0.91 内容: company-service-handbook.md 云舟科技员工服务总览 inquiry - "
+            "私人快递建议寄到个人住址,公司收发室优先处理公司业务件。"
+            "公司业务件收件人需写清部门、姓名、手机号和楼层。"
+        )
+        _seed_ticket(
+            app,
+            "TK-alice-reference-source",
+            alice["user_id"],
+            content="【原始描述】请问私人快递可以寄到公司吗？",
+            processing_result=raw_result,
+        )
+
+        resp = client.get("/api/tickets/TK-alice-reference-source")
+        assert resp.status_code == 200
+        result = resp.json()["processing_result"]
+        assert "company-service-handbook.md" not in result
+        assert "参考文档" not in result
+        assert "可参考的资料要点" not in result
+        assert "知识库" not in result
+        assert "inquiry" not in result
+        assert "相似度" not in result
+        assert "私人快递" in result
+        assert "收发室" in result
+
     def test_admin_detail_keeps_internal_processing_result(
         self, client: TestClient, app: FastAPI
     ) -> None:

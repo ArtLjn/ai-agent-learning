@@ -1,5 +1,6 @@
 """ReAct 模式 ProcessorAgent：多步推理 + 动态工具调用。"""
 
+import inspect
 import json
 import re
 from typing import TYPE_CHECKING, Any
@@ -40,6 +41,19 @@ _TEXT_FINAL_ANSWER_RE = re.compile(
 _JSON_FINAL_ANSWER_RE = re.compile(
     r'["\'](?:Final Answer|final_answer|finalAnswer)["\']\s*:\s*"(?P<answer>(?:\\.|[^"\\])*)"',
     re.DOTALL,
+)
+_COMPANY_NAME = "云舟科技有限公司"
+_COMPANY_NAME_QUERY_RE = re.compile(
+    r"(公司\s*(?:叫啥|叫什么|叫什[么麼]|名称|名字|名)|你们公司|贵司)"
+)
+_INTERNAL_REFERENCE_SENTENCE_RE = re.compile(
+    r"[^。；\n]*(?:Trace|RAG|Prompt|Token|系统运维管理端|工单提交人默认为|服务台负责人工审核兜底)[^。；\n]*[。；]?"
+)
+_RAG_QUERY_FIELD_PRIORITY = ("问题标题", "期望处理", "原始描述")
+_REFERENCE_MAINTENANCE_TERMS = (
+    "员工说法",
+    "推荐关键词",
+    "云舟科技员工服务总览",
 )
 
 
@@ -315,11 +329,13 @@ class ReActProcessorAgent:
                     last_no_action_signature = signature
 
                     if no_action_count >= 2 or is_repeated:
-                        answer = self._build_convergence_answer(
+                        answer = await self._build_convergence_answer(
+                            content,
                             category,
                             priority,
                             references,
                             thought,
+                            allow_compose=self._rag_client is not None,
                         )
                         iter_span.set_output({
                             "thought": thought,
@@ -366,6 +382,8 @@ class ReActProcessorAgent:
         3. 都不可用时返回空字符串（无知识增强）
         """
         query = self._normalize_knowledge_query(content)
+        if self._rag_client is not None:
+            query = await self._plan_retrieval_query(content, category, query)
 
         # 路径 1：rag-service HTTP 客户端
         if self._rag_client is not None:
@@ -496,20 +514,125 @@ class ReActProcessorAgent:
         """处理模型不可用时，优先用知识库检索结果生成基础答复。"""
         knowledge_context = await self._prefetch_knowledge(content, category)
         if self._is_valid_reference(knowledge_context):
+            composed = None
+            if self._rag_client is not None:
+                composed = await self._compose_answer_with_references(
+                    content=content,
+                    category=category,
+                    priority=priority,
+                    reference=knowledge_context,
+                )
             return {
-                "result": self._build_related_knowledge_guidance(knowledge_context),
+                "result": composed or self._build_related_knowledge_guidance(
+                    knowledge_context,
+                    content=content,
+                ),
                 "references": [knowledge_context],
             }
         return await fallback_registry.execute(
             "processor.generate_solution", content, category, priority
         )
 
+    async def _plan_retrieval_query(
+        self,
+        content: str,
+        category: str,
+        default_query: str,
+    ) -> str:
+        """用 LLM 把员工诉求改写成适合向量检索的短 query；失败则用规则 query。"""
+        prompt = (
+            "你是企业员工服务台 RAG 检索规划器。请把工单改写成适合向量库检索的中文 query。\n"
+            "只输出 JSON，不要输出解释。\n"
+            "JSON schema: {\"retrieval_query\": \"...\", \"answer_focus\": [\"...\"]}\n"
+            "要求：\n"
+            "1. 只保留员工真实诉求、平台名、制度名、流程名和关键材料。\n"
+            "2. 删除 Agent 判断、置信度、风险等级、是否人工审核、内部分类、员工号等噪声。\n"
+            "3. 不要编造 URL、制度或流程。\n\n"
+            f"分类：{category}\n"
+            f"规则 query：{default_query}\n"
+            f"工单：{content}"
+        )
+        try:
+            response_call = self.client.chat_completions_create(
+                messages=[
+                    {"role": "system", "content": "你只负责生成 RAG 检索 query。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.0,
+                task_type=f"{self._task_type}_query_plan",
+            )
+            if not inspect.isawaitable(response_call):
+                return default_query
+            response = await response_call
+            raw = response.choices[0].message.content or ""
+            parsed = parse_json_response(raw)
+        except Exception as e:
+            logger.debug(f"[ReAct] query planning skipped: {e}")
+            return default_query
+
+        if not isinstance(parsed, dict):
+            return default_query
+        planned_query = str(parsed.get("retrieval_query") or "").strip()
+        return self._sanitize_planned_query(planned_query, default_query)
+
+    def _sanitize_planned_query(self, planned_query: str, default_query: str) -> str:
+        """清理 LLM 生成的检索 query，避免内部字段再次进入 RAG。"""
+        if not planned_query:
+            return default_query
+        fields = self._parse_structured_ticket_fields(planned_query)
+        if fields:
+            planned_query = self._extract_rag_query_text(planned_query)
+        noisy_terms = (
+            "Agent判断",
+            "置信度",
+            "风险等级",
+            "需人工审核",
+            "可自动闭环",
+            "需业务操作",
+            "knowledge_question",
+            "inquiry",
+        )
+        for term in noisy_terms:
+            planned_query = planned_query.replace(term, " ")
+        planned_query = re.sub(r"员工\s*\d+", " ", planned_query)
+        planned_query = re.sub(r"\s+", " ", planned_query).strip(" 。，；")
+        return planned_query or default_query
+
     def _normalize_knowledge_query(self, content: str) -> str:
         """规范化检索 query，修正常见业务词错别字。"""
-        normalized = content
+        normalized = self._extract_rag_query_text(content)
         for source, target in _QUERY_NORMALIZATION_RULES:
             normalized = normalized.replace(source, target)
-        return normalized
+        return re.sub(r"\s+", " ", normalized).strip()
+
+    def _extract_rag_query_text(self, content: str) -> str:
+        """从结构化工单中抽取适合检索的员工问题文本。"""
+        fields = self._parse_structured_ticket_fields(content)
+        if not fields:
+            return content
+
+        parts = [
+            fields[label].strip()
+            for label in _RAG_QUERY_FIELD_PRIORITY
+            if fields.get(label, "").strip()
+        ]
+        return "。".join(parts) if parts else content
+
+    def _parse_structured_ticket_fields(self, content: str) -> dict[str, str]:
+        """解析形如【原始描述】的结构化工单字段。"""
+        matches = list(re.finditer(r"【(?P<label>[^】]+)】", content or ""))
+        if not matches:
+            return {}
+
+        fields: dict[str, str] = {}
+        for index, match in enumerate(matches):
+            label = match.group("label").strip()
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(content)
+            value = content[start:end].strip()
+            if value:
+                fields[label] = value
+        return fields
 
     def _merge_references(self, *groups: object) -> list[str]:
         """合并工具和模型返回的引用，保留顺序并去重。"""
@@ -593,12 +716,14 @@ class ReActProcessorAgent:
         normalized = re.sub(r"\s+", "", text)
         return normalized[:500]
 
-    def _build_convergence_answer(
+    async def _build_convergence_answer(
         self,
+        content: str,
         category: str,
         priority: str,
         references: list[str],
         thought: str,
+        allow_compose: bool = False,
     ) -> str:
         """连续无动作时基于已有上下文生成兜底答复，避免 ReAct 空转。"""
         valid_references = [
@@ -606,7 +731,18 @@ class ReActProcessorAgent:
             if self._is_valid_reference(reference)
         ]
         if valid_references:
-            return self._build_related_knowledge_guidance(valid_references[0])
+            composed = None
+            if allow_compose:
+                composed = await self._compose_answer_with_references(
+                    content=content,
+                    category=category,
+                    priority=priority,
+                    reference=valid_references[0],
+                )
+            return composed or self._build_related_knowledge_guidance(
+                valid_references[0],
+                content=content,
+            )
 
         if thought:
             return (
@@ -621,18 +757,84 @@ class ReActProcessorAgent:
             "请补充具体现象、操作路径和截图，我们会据此继续核查处理。"
         )
 
-    def _build_related_knowledge_guidance(self, reference: str) -> str:
+    async def _compose_answer_with_references(
+        self,
+        *,
+        content: str,
+        category: str,
+        priority: str,
+        reference: str,
+    ) -> str | None:
+        """让 LLM 基于 RAG 命中文档组织员工可读答案；失败时返回 None 走规则兜底。"""
+        reference_context = self._build_answer_reference_context(reference)
+        if not reference_context:
+            return None
+
+        prompt = (
+            "你是云舟科技员工服务台助手。请只根据给定知识库资料回答员工问题。\n"
+            "要求：\n"
+            "1. 使用自然中文，不要粘贴表格、Markdown 分隔线或知识库维护字段。\n"
+            "2. 禁止输出“员工说法”“推荐关键词”“相似度”“Trace”“RAG”“Prompt”“Token”。\n"
+            "3. 如果资料只覆盖部分问题，明确说明可确认部分，并提示需要补充哪些员工侧材料。\n"
+            "4. 不要编造资料中没有的制度、金额、URL 或审批节点。\n\n"
+            f"分类：{category}\n"
+            f"优先级：{priority}\n"
+            f"员工问题：{content}\n\n"
+            f"知识库资料：\n{reference_context}"
+        )
+        try:
+            response_call = self.client.chat_completions_create(
+                messages=[
+                    {"role": "system", "content": "你负责把 RAG 资料整理成员工可读最终答复。"},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.2,
+                task_type=f"{self._task_type}_answer_compose",
+            )
+            if not inspect.isawaitable(response_call):
+                return None
+            response = await response_call
+            raw = response.choices[0].message.content or ""
+        except Exception as e:
+            logger.debug(f"[ReAct] answer composing skipped: {e}")
+            return None
+
+        answer = self._extract_composed_answer(raw)
+        if not answer:
+            return None
+        return self._strip_reference_noise(answer)
+
+    def _extract_composed_answer(self, raw: str) -> str:
+        """从 composer 响应中提取最终文本，兼容纯文本和 JSON。"""
+        try:
+            parsed = parse_json_response(raw)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, dict):
+            for key in ("answer", "final_answer", "result", "Final Answer"):
+                value = parsed.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+            return ""
+        final_answer = self._extract_final_answer(raw)
+        return final_answer or raw.strip()
+
+    def _build_related_knowledge_guidance(self, reference: str, content: str = "") -> str:
         """基于相关知识命中生成可展示答复，避免把部分命中误判为完全未知。"""
+        if self._is_company_name_query(content) and _COMPANY_NAME in reference:
+            return f"您好，公司名称是{_COMPANY_NAME}。"
+
         reference_text = self._build_user_visible_reference_summary(reference)
         return (
-            "您好，已根据现有资料整理出一组可先核对的方向。"
-            "目前还缺少可直接确认最终答案的具体业务细则，可以先按以下方向核对：\n\n"
+            "您好，可以先按以下信息处理：\n\n"
             f"{reference_text}\n\n"
-            "1. 确认产品或平台、应用类型、账号权限与本次咨询对象是否一致。\n"
-            "2. 对接或配置类问题，优先核对 Key/Secret、应用标识、白名单、服务开通状态和接口返回码。\n"
-            "3. 流程或规则类问题，优先核对适用账号范围、入口路径、审批要求和最新业务规则。\n\n"
-            "如仍无法确认，请补充具体平台入口、账号权限、截图或内部规则说明，我们会继续核对。"
+            "如果还需要继续处理，建议补充涉及的内部平台、发生时间、员工号、审批单号或截图等信息，"
+            "云舟服务台会按归口部门继续处理。"
         )
+
+    def _is_company_name_query(self, content: str) -> bool:
+        """识别“公司叫什么”这类简单事实咨询。"""
+        return bool(_COMPANY_NAME_QUERY_RE.search(content or ""))
 
     def _compact_reference(self, reference: str, max_length: int = 800) -> str:
         """压缩知识库引用，避免把过长检索上下文原样塞进答复。"""
@@ -648,12 +850,40 @@ class ReActProcessorAgent:
         text = re.sub(r"\b\d+\.\s*标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*", "\n", text)
         text = re.sub(r"标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*", "", text)
         text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+        text = _INTERNAL_REFERENCE_SENTENCE_RE.sub("", text)
+        text = text.replace("|", " ")
+        text = self._strip_reference_noise(text)
         text = re.sub(r"\s+", " ", text).strip(" ；。")
         if not text:
-            text = "可参考现有资料中的流程、配置项和规则说明。"
+            text = "可参考现有员工服务制度、平台入口和归口部门说明。"
         if len(text) > max_length:
             text = f"{text[:max_length].rstrip()}..."
-        return f"可参考的资料要点：{text}"
+        return text
+
+    def _build_answer_reference_context(self, reference: str, max_length: int = 1400) -> str:
+        """构造给 composer 使用的干净 RAG 上下文。"""
+        text = self._compact_reference(reference, max_length=max_length * 2)
+        text = re.sub(r"检索到以下知识片段[:：]?", "", text)
+        text = re.sub(r"\b\d+\.\s*标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*", "\n", text)
+        text = re.sub(r"标题:\s*[^；。]+；\s*分类:\s*[^；。]+；\s*相似度:\s*\d+(?:\.\d+)?\s*内容:\s*", "", text)
+        text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+        text = _INTERNAL_REFERENCE_SENTENCE_RE.sub("", text)
+        text = self._strip_reference_noise(text)
+        text = re.sub(r"\s+", " ", text).strip(" ；。")
+        return text[:max_length].rstrip()
+
+    def _strip_reference_noise(self, text: str) -> str:
+        """去掉知识库维护字段、Markdown 表格线和不适合直接展示给员工的噪声。"""
+        for term in _REFERENCE_MAINTENANCE_TERMS:
+            text = text.replace(term, " ")
+        text = re.sub(r"\b[\w.-]+\.md\b", " ", text)
+        text = re.sub(r"\b(?:inquiry|technical|billing|complaint)\b", " ", text, flags=re.IGNORECASE)
+        text = re.sub(r"\bP[1-4]\s*[:：][^。；\n]*", " ", text)
+        text = re.sub(r"\|\s*-{2,}\s*(?:\|\s*-{2,}\s*)+\|?", " ", text)
+        text = re.sub(r"(?:^|\s)-{2,}(?:\s+-{2,})+(?=\s|$)", " ", text)
+        text = text.replace("|", " ")
+        text = re.sub(r"(?:^|\s)-\s*", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
 
     def _is_valid_reference(self, reference: object) -> bool:
         """判断引用是否是真实知识命中，而不是空结果提示。"""

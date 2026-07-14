@@ -414,10 +414,14 @@ class TestTicketWorkflow:
         assert result["status"] == "completed"
         assert result["review_issue_type"] == "knowledge_gap"
         assert result["processing_result"] is not None
-        assert "可以先按以下方向核对" in result["processing_result"]
+        assert "可以先按以下信息处理" in result["processing_result"]
+        assert "云舟服务台" in result["processing_result"]
         assert "高德" in result["processing_result"]
         assert "白名单" in result["processing_result"]
-        assert "如仍无法确认" in result["processing_result"]
+        assert "员工号" in result["processing_result"]
+        assert "审批单号" in result["processing_result"]
+        assert "可参考的资料要点" not in result["processing_result"]
+        assert "知识库" not in result["processing_result"]
         assert "知识库命中" not in result["processing_result"]
         assert "知识库参考" not in result["processing_result"]
         assert "相似度" not in result["processing_result"]

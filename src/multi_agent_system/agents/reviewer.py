@@ -20,6 +20,7 @@ from src.multi_agent_system.prompts import get_prompt_template
 _REVIEWER_SYSTEM_PROMPT = get_prompt_template("review")
 
 _NON_RETRYABLE_ISSUE_TYPES = {"knowledge_gap", "needs_clarification", "out_of_scope"}
+_LEGACY_REVIEW_PLACEHOLDERS = ("{content}", "{category}", "{processing_result}")
 
 
 class ReviewerAgent:
@@ -120,9 +121,7 @@ class ReviewerAgent:
             RetryableError: OpenAI API 可重试错误
             NonRetryableError: 认证失败或 JSON 解析失败
         """
-        system_prompt = Template(
-            self._prompt_override if self._prompt_override else _REVIEWER_SYSTEM_PROMPT
-        ).render(
+        system_prompt = self._render_review_prompt(
             content=content,
             category=category,
             processing_result=processing_result,
@@ -195,6 +194,24 @@ class ReviewerAgent:
                 content,
             ),
         }
+
+    def _render_review_prompt(
+        self,
+        *,
+        content: str,
+        category: str,
+        processing_result: str,
+    ) -> str:
+        """渲染 Reviewer prompt，兼容 DB 中旧版 Python format 模板。"""
+        template = self._prompt_override if self._prompt_override else _REVIEWER_SYSTEM_PROMPT
+        variables = {
+            "content": content,
+            "category": category,
+            "processing_result": processing_result,
+        }
+        if any(placeholder in template for placeholder in _LEGACY_REVIEW_PLACEHOLDERS):
+            return template.format(**variables)
+        return Template(template).render(**variables)
 
     @staticmethod
     def _normalize_dimensions(value: object) -> dict[str, float]:

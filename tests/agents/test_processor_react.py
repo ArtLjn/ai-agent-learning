@@ -90,6 +90,28 @@ class _FailingRerankRagClient(_SuccessfulRagClient):
         raise RagServiceUnavailable("rerank timeout")
 
 
+class _RecordingRagClient:
+    def __init__(self, content: str) -> None:
+        self.content = content
+        self.retrieve_queries: list[str] = []
+        self.rerank_queries: list[str] = []
+
+    async def retrieve(self, **kwargs):
+        self.retrieve_queries.append(kwargs["query"])
+        return [
+            RagChunk(
+                id="doc-1",
+                content=self.content,
+                score=0.88,
+                metadata={"title": "采购制度", "category": "inquiry"},
+            )
+        ], {"actual_mode": "hybrid", "warning": None}
+
+    async def rerank(self, **kwargs):
+        self.rerank_queries.append(kwargs["query"])
+        return kwargs["chunks"]
+
+
 @pytest.fixture
 def mock_client():
     client = MagicMock()
@@ -278,10 +300,14 @@ async def test_react_processor_fallback_with_related_knowledge_is_not_unknown(mo
 
     result = await agent.process("咨询高德地图SDK配置及白名单规则", "inquiry", "P3")
 
-    assert "可以先按以下方向核对" in result["result"]
+    assert "可以先按以下信息处理" in result["result"]
+    assert "云舟服务台" in result["result"]
     assert "高德" in result["result"]
     assert "白名单" in result["result"]
-    assert "如仍无法确认" in result["result"]
+    assert "员工号" in result["result"]
+    assert "审批单号" in result["result"]
+    assert "可参考的资料要点" not in result["result"]
+    assert "知识库" not in result["result"]
     assert "知识库命中" not in result["result"]
     assert "知识库参考" not in result["result"]
     assert "相似度" not in result["result"]
@@ -498,3 +524,165 @@ async def test_react_processor_rerank_unavailable_degrades_to_empty_references(m
     assert rag_stats["rerank_applied"] is False
     assert rag_stats["rerank_error"] == "rerank timeout"
     assert rag_stats["degraded"] is True
+
+
+@pytest.mark.asyncio
+async def test_react_processor_uses_llm_planned_query_for_rag(mock_client):
+    """检索前先由 LLM 抽取员工诉求，rag-service 不应收到整段结构化工单。"""
+    rag_client = _RecordingRagClient(
+        "BuyDesk 采购办公用品和软件许可证需要提交用途、预算、数量和审批部门。"
+    )
+    agent = ReActProcessorAgent(
+        model="test-model",
+        client=mock_client,
+        rag_client=rag_client,
+    )
+    mock_client.chat_completions_create = AsyncMock(side_effect=[
+        MagicMock(choices=[MagicMock(message=MagicMock(content=(
+            '{"retrieval_query": "云舟科技 BuyDesk 办公用品 软件采购 审批流程 证明材料", '
+            '"answer_focus": ["审批流程", "证明材料", "加急审核"]}'
+        )))]),
+        MagicMock(choices=[MagicMock(message=MagicMock(content=(
+            "Final Answer: 请在 BuyDesk 发起采购申请，并补充用途、预算、数量和审批部门。"
+        )))]),
+    ])
+
+    await agent.process(
+        "【问题标题】云舟 BuyDesk 采购制度咨询\n"
+        "【问题类型】咨询问询\n"
+        "【Agent判断】归类为 inquiry，置信度 0.95\n"
+        "【原始描述】我是员工 2045，想咨询云舟科技的采购制度。"
+        "请问通过 BuyDesk 平台申请办公用品和软件采购时，具体审批流程是怎样的？",
+        "inquiry",
+        "P3",
+    )
+
+    assert rag_client.retrieve_queries == [
+        "云舟科技 BuyDesk 办公用品 软件采购 审批流程 证明材料"
+    ]
+    assert rag_client.rerank_queries == rag_client.retrieve_queries
+    assert "Agent判断" not in rag_client.retrieve_queries[0]
+    assert "置信度" not in rag_client.retrieve_queries[0]
+    assert "员工 2045" not in rag_client.retrieve_queries[0]
+
+
+@pytest.mark.asyncio
+async def test_react_processor_composes_employee_answer_from_rag_when_react_stalls(mock_client):
+    """ReAct 空转时，应让 LLM 基于命中文档组织答案，而不是粘贴知识库表格字段。"""
+    rag_client = _RecordingRagClient(
+        "采购申请\n"
+        "| 员工说法 | 推荐关键词 |\n"
+        "| --- | --- |\n"
+        "| 买显示器 | 办公用品 固定资产 BuyDesk |\n"
+        "通过 BuyDesk buy.yunzhou.example 发起。办公用品需填写用途、数量、预算；"
+        "软件许可证需补充软件名称、使用人数、授权周期和部门负责人审批。"
+    )
+    agent = ReActProcessorAgent(
+        model="test-model",
+        client=mock_client,
+        rag_client=rag_client,
+        max_iterations=2,
+    )
+    mock_client.chat_completions_create = AsyncMock(side_effect=[
+        MagicMock(choices=[MagicMock(message=MagicMock(content=(
+            '{"retrieval_query": "云舟科技 BuyDesk 办公用品 软件许可证 采购审批 材料", '
+            '"answer_focus": ["审批流程", "证明材料"]}'
+        )))]),
+        MagicMock(choices=[MagicMock(message=MagicMock(content='{"Thought": "已有知识库资料"}'))]),
+        MagicMock(choices=[MagicMock(message=MagicMock(content='{"Thought": "继续整理"}'))]),
+        MagicMock(choices=[MagicMock(message=MagicMock(content=(
+            "您好，办公用品和软件许可证采购都需要在 BuyDesk 发起申请。办公用品请填写用途、"
+            "数量和预算；软件许可证请补充软件名称、使用人数、授权周期，并提交部门负责人审批。"
+        )))]),
+    ])
+
+    result = await agent.process(
+        "我是员工 2045，想咨询云舟科技的采购制度。请问通过 BuyDesk 平台申请办公用品和软件采购时，"
+        "具体审批流程是怎样的？需要提交哪些证明材料才能加快审核速度？",
+        "inquiry",
+        "P3",
+    )
+
+    assert "BuyDesk" in result["result"]
+    assert "办公用品" in result["result"]
+    assert "软件许可证" in result["result"]
+    assert "员工说法" not in result["result"]
+    assert "推荐关键词" not in result["result"]
+    assert "---" not in result["result"]
+    assert "可参考的资料要点" not in result["result"]
+
+
+def test_related_knowledge_guidance_answers_company_name_directly(mock_client):
+    """公司名称类简单咨询命中知识库时，应直接回答，不套旧排障模板。"""
+    agent = ReActProcessorAgent(model="test-model", client=mock_client)
+    reference = (
+        "检索到以下知识片段：1. 标题: 知识库说明；分类: ticket_knowledge；相似度: 0.92 "
+        "内容: 本知识库模拟公司为“云舟科技有限公司”。系统运维管理端负责查看 Trace、"
+        "状态机、RAG、Prompt 和 Token。"
+    )
+
+    result = agent._build_related_knowledge_guidance(reference, content="你好公司叫啥呀")
+
+    assert result == "您好，公司名称是云舟科技有限公司。"
+    assert "Trace" not in result
+    assert "RAG" not in result
+    assert "Prompt" not in result
+    assert "Token" not in result
+    assert "Key/Secret" not in result
+
+
+def test_related_knowledge_guidance_hides_document_source_from_employee(mock_client):
+    """规则兜底也不能把文档名、分类和参考资料话术展示给员工。"""
+    agent = ReActProcessorAgent(model="test-model", client=mock_client)
+    reference = (
+        "检索到以下知识片段：1. 标题: company-service-handbook.md；分类: inquiry；相似度: 0.91 "
+        "内容: company-service-handbook.md 云舟科技员工服务总览 inquiry - 私人快递建议寄到个人住址,"
+        "公司收发室优先处理公司业务件。 - 公司业务件收件人需写清部门、姓名、手机号和楼层。"
+        " - P3:单个员工的一般咨询、入口指引、普通软件安装、常规权限申请。"
+    )
+
+    result = agent._build_related_knowledge_guidance(reference, content="请问公司叫啥")
+
+    assert "company-service-handbook.md" not in result
+    assert "参考" not in result
+    assert "资料要点" not in result
+    assert "知识库" not in result
+    assert "inquiry" not in result
+    assert "P3" not in result
+    assert "私人快递" in result
+    assert "收发室" in result
+
+
+def test_normalize_knowledge_query_uses_employee_problem_not_agent_metadata(mock_client):
+    """RAG 查询应使用员工问题本身，避免把 Agent 判断和置信度送入检索。"""
+    agent = ReActProcessorAgent(model="test-model", client=mock_client)
+    content = (
+        "【问题标题】员工门户页面无法打开及报销制度咨询\n"
+        "【问题类型】咨询问询\n"
+        "【紧急程度】P3 低\n"
+        "【影响范围】仅本人受影响\n"
+        "【期望处理】获取备用入口或链接，了解差旅补贴标准\n"
+        "【意图类型】knowledge_question\n"
+        "【需业务操作】否\n"
+        "【可自动闭环】是\n"
+        "【风险等级】low\n"
+        "【需人工审核】否\n"
+        "【Agent判断】用户主要目的是查询报销制度和获取备用链接，属于功能咨询和知识问答。"
+        "虽然提到页面打不开，但核心诉求是获取信息而非修复系统故障，且影响范围小，"
+        "故归类为 inquiry 和 P3。，置信度 0.95\n"
+        "【原始描述】我尝试访问云舟员工门户 portal.yunzhou.example 查询最新报销制度，"
+        "但页面无法打开。请问是否有其他备用入口或链接？急需了解差旅补贴标准，谢谢协助。"
+    )
+
+    query = agent._normalize_knowledge_query(content)
+
+    assert query.startswith("员工门户页面无法打开及报销制度咨询")
+    assert "portal.yunzhou.example" in query
+    assert "备用入口" in query
+    assert "差旅补贴标准" in query
+    assert "Agent判断" not in query
+    assert "置信度" not in query
+    assert "风险等级" not in query
+    assert "需人工审核" not in query
+    assert "knowledge_question" not in query
+    assert "inquiry" not in query

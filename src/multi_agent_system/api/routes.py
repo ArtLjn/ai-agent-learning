@@ -34,6 +34,19 @@ __all__ = ["router"]
 
 router = APIRouter()
 
+_COMPANY_NAME = "云舟科技有限公司"
+_COMPANY_NAME_QUERY_RE = re.compile(
+    r"(公司\s*(?:叫啥|叫什么|叫什[么麼]|名称|名字|名)|你们公司|贵司)"
+)
+_INTERNAL_REFERENCE_SENTENCE_RE = re.compile(
+    r"[^。；\n]*(?:Trace|RAG|Prompt|Token|系统运维管理端|工单提交人默认为|服务台负责人工审核兜底)[^。；\n]*[。；]?"
+)
+_REFERENCE_MAINTENANCE_TERMS = (
+    "员工说法",
+    "推荐关键词",
+    "云舟科技员工服务总览",
+)
+
 # WebSocket 连接管理：ticket_id -> 订阅该工单的 WebSocket 列表
 _ws_connections: dict[str, list[WebSocket]] = {}
 
@@ -130,13 +143,40 @@ def _strip_reference_metadata(text: str) -> str:
         text,
     )
     text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+    text = _INTERNAL_REFERENCE_SENTENCE_RE.sub("", text)
+    text = _strip_employee_reference_noise(text)
     return re.sub(r"\s+", " ", text).strip(" ；。")
 
 
-def _sanitize_processing_result_for_user(result: str | None) -> str | None:
+def _strip_employee_reference_noise(text: str) -> str:
+    """去掉员工侧不应看到的文档来源、分类和知识库维护字段。"""
+    for term in _REFERENCE_MAINTENANCE_TERMS:
+        text = text.replace(term, " ")
+    text = re.sub(r"\b[\w.-]+\.md\b", " ", text)
+    text = re.sub(r"\b(?:inquiry|technical|billing|complaint)\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bP[1-4]\s*[:：][^。；\n]*", " ", text)
+    text = re.sub(r"\|\s*-{2,}\s*(?:\|\s*-{2,}\s*)+\|?", " ", text)
+    text = re.sub(r"(?:^|\s)-{2,}(?:\s+-{2,})+(?=\s|$)", " ", text)
+    text = text.replace("|", " ")
+    text = re.sub(r"(?:^|\s)-\s*", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _is_company_name_query(content: str) -> bool:
+    """识别员工询问公司名称的简单事实问题。"""
+    return bool(_COMPANY_NAME_QUERY_RE.search(content or ""))
+
+
+def _sanitize_processing_result_for_user(
+    result: str | None,
+    content: str = "",
+) -> str | None:
     """用户视角清洗历史处理结果，避免暴露知识库命中、相似度等内部字段。"""
     if not result:
         return result
+
+    if _is_company_name_query(content) and _COMPANY_NAME in result:
+        return f"您好，公司名称是{_COMPANY_NAME}。"
 
     internal_markers = (
         "知识库命中",
@@ -145,6 +185,12 @@ def _sanitize_processing_result_for_user(result: str | None) -> str | None:
         "相似度",
         "置信度",
         "需要人工确认",
+        "Trace",
+        "RAG",
+        "Prompt",
+        "Token",
+        "Key/Secret",
+        "接口返回码",
     )
     if not any(marker in result for marker in internal_markers):
         return result
@@ -161,16 +207,13 @@ def _sanitize_processing_result_for_user(result: str | None) -> str | None:
     if len(summary) > 520:
         summary = f"{summary[:520].rstrip()}..."
     if not summary:
-        summary = "可以先核对证书状态、相关配置和服务运行情况。"
+        summary = "可以先核对员工服务制度、内部平台入口和归口部门说明。"
 
     return (
-        "您好，已根据现有资料整理出一组可先核对的方向。\n\n"
-        f"可参考的资料要点：{summary}\n\n"
-        "可以先按以下方向核对：\n"
-        "1. 确认当前问题对象、域名或服务实例与本次咨询一致。\n"
-        "2. 检查相关配置、定时任务或服务状态是否按预期运行。\n"
-        "3. 查看最近一次执行记录、错误日志和变更记录，确认是否存在失败或未生效。\n\n"
-        "如仍无法确认，请补充具体域名、服务入口、执行时间或报错截图，我们会继续核对。"
+        "您好，可以先按以下信息处理：\n\n"
+        f"{summary}\n\n"
+        "如果还需要继续处理，建议补充员工号、涉及系统或平台、发生时间、截图或审批单号，"
+        "云舟服务台会按归口部门继续处理。"
     )
 
 
@@ -191,7 +234,7 @@ def _build_ticket_response(ticket: dict[str, Any], *, role: str) -> TicketRespon
     retry_count = ticket.get("retry_count", 0)
     if role == "user":
         content = _extract_user_ticket_content(content)
-        processing_result = _sanitize_processing_result_for_user(processing_result)
+        processing_result = _sanitize_processing_result_for_user(processing_result, content)
         references = []
         review_score = None
         retry_count = 0

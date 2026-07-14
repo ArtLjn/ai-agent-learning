@@ -268,6 +268,36 @@ class TestReviewerAgent:
         assert "feedback" in result
 
     @pytest.mark.asyncio
+    async def test_review_supports_legacy_format_prompt_override(self):
+        """兼容 DB 中旧版 Python format 风格 Prompt，不因 JSON 示例触发 Jinja 解析错误。"""
+        mock_response = _make_mock_response({
+            "score": 0.88,
+            "feedback": "审核通过",
+            "should_retry": False,
+        })
+        mock_client = _make_mock_client(mock_response)
+
+        agent = ReviewerAgent(model="test-model", api_key="fake")
+        agent._client = mock_client
+        agent.set_prompt_override(
+            "原始工单内容：{content}\n"
+            "工单分类：{category}\n"
+            "处理结果：{processing_result}\n"
+            "严格按 JSON 输出：\n"
+            '{{"score": 0.85, "dimensions": {{"accuracy": 0.27}}, "should_retry": false}}'
+        )
+
+        result = await agent.review("请问公司叫啥", "您好，公司名称是云舟科技有限公司。", "inquiry")
+
+        assert result["score"] == 0.88
+        mock_client.chat_completions_create.assert_awaited_once()
+        sent_prompt = mock_client.chat_completions_create.call_args.kwargs["messages"][0]["content"]
+        assert "请问公司叫啥" in sent_prompt
+        assert "云舟科技有限公司" in sent_prompt
+        assert "{content}" not in sent_prompt
+        assert '{{"score"' not in sent_prompt
+
+    @pytest.mark.asyncio
     async def test_review_fallback(self):
         """LLM 失败时返回默认评分。"""
         mock_client = _make_mock_client(side_effect=Exception("LLM 不可用"))

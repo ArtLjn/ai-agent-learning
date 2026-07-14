@@ -1076,17 +1076,14 @@ def _build_final_knowledge_gap_result(state: TicketState) -> str:
     reference_text = _summarize_references(state.get("references"), max_length=520)
 
     if reference_text:
+        if _is_company_name_query(content) and "云舟科技有限公司" in reference_text:
+            return "您好，公司名称是云舟科技有限公司。"
         lines = [
-            "您好，已根据现有资料整理出一组可先核对的方向。",
+            "您好，可以先按以下信息处理：",
             "",
-            f"可参考的资料要点：{reference_text}",
+            reference_text,
             "",
-            "可以先按以下方向核对：",
-            "1. 先确认本次咨询的产品/平台、账号权限、应用类型和业务场景是否与知识库片段一致。",
-            "2. 对接或配置类问题，重点核对 Key/Secret、应用标识、白名单、服务开通状态和接口返回码。",
-            "3. 流程或规则类问题，重点核对适用账号范围、入口路径、审批要求和最新业务规则。",
-            "",
-            "如仍无法确认，请补充具体平台入口、账号权限、截图或内部规则说明，我们会继续核对。",
+            "如果还需要继续处理，建议补充员工号、涉及系统或平台、发生时间、截图或审批单号，云舟服务台会按归口部门继续处理。",
         ]
         if content:
             lines.extend(["", f"本次咨询：{content[:160]}"])
@@ -1406,7 +1403,31 @@ def _strip_reference_metadata(text: str) -> str:
         text,
     )
     text = re.sub(r"相似度:\s*\d+(?:\.\d+)?", "", text)
+    text = re.sub(
+        r"[^。；\n]*(?:Trace|RAG|Prompt|Token|系统运维管理端|工单提交人默认为|服务台负责人工审核兜底)[^。；\n]*[。；]?",
+        "",
+        text,
+    )
+    text = re.sub(r"\b[\w.-]+\.md\b", " ", text)
+    text = re.sub(r"\b(?:inquiry|technical|billing|complaint)\b", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bP[1-4]\s*[:：][^。；\n]*", " ", text)
+    text = text.replace("云舟科技员工服务总览", " ")
+    text = text.replace("员工说法", " ").replace("推荐关键词", " ")
+    text = re.sub(r"\|\s*-{2,}\s*(?:\|\s*-{2,}\s*)+\|?", " ", text)
+    text = re.sub(r"(?:^|\s)-{2,}(?:\s+-{2,})+(?=\s|$)", " ", text)
+    text = text.replace("|", " ")
+    text = re.sub(r"(?:^|\s)-\s*", " ", text)
     return re.sub(r"\s+", " ", text).strip(" ；。")
+
+
+def _is_company_name_query(content: str) -> bool:
+    """识别员工询问公司名称的简单事实问题。"""
+    return bool(
+        re.search(
+            r"(公司\s*(?:叫啥|叫什么|叫什[么麼]|名称|名字|名)|你们公司|贵司)",
+            content or "",
+        )
+    )
 
 
 # ============================================================
