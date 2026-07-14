@@ -4,9 +4,9 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
-AgentDesk 是一个基于 LangGraph 的多智能体工单自动化系统。系统将自然语言工单转为结构化任务，并由 `TicketIntentAgent`、`ClassifierAgent`、`ReActProcessorAgent`、`ReviewerAgent`、`CoordinatorAgent` 协同完成意图理解、分类路由、知识库增强处理、质量审核、人工复核、用户补充恢复和执行追踪。
+AgentDesk 是一个基于 LangGraph 的多智能体工单自动化系统。系统将自然语言工单转为结构化任务，并由 `TicketIntentAgent`、`ClassifierAgent`、`ReActProcessorAgent`、`ReviewerAgent`、`CoordinatorAgent` 协同完成意图理解、分类路由、知识增强处理、质量审核、人工复核、用户补充恢复和执行追踪。
 
-> 设计文档已按最新代码和数据库实现同步到 v1.3。答辩或汇报优先阅读：[设计规范总览](docs/design-spec/README.md) · [总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md) · [核心流程](docs/design-spec/01_正式设计/02_工单处理流程设计.md) · [数据存储](docs/design-spec/01_正式设计/05_数据存储设计.md) · [接口协议](docs/design-spec/03_接口协议/01_HTTP_API接口协议.md)
+> 设计文档已按企业内部服务台工单场景同步到 v2.2。答辩或汇报优先阅读：[设计规范总览](docs/design-spec/README.md) · [总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md) · [核心流程](docs/design-spec/01_正式设计/02_工单处理流程设计.md) · [数据存储](docs/design-spec/01_正式设计/05_数据存储设计.md) · [接口协议](docs/design-spec/03_接口协议/01_HTTP_API接口协议.md)
 
 ## 核心特性
 
@@ -23,13 +23,13 @@ AgentDesk 是一个基于 LangGraph 的多智能体工单自动化系统。系�
 
 ## 系统架构
 
-![智能工单处理系统模块架构图](docs/design-spec/assets/system-module-architecture.png)
+![智能工单处理系统模块架构图](docs/design-spec/assets/architecture/system-4-modules-tree.drawio.png)
 
-上图从功能分解角度展示系统模块：用户端、管理端、人工审核、Agent 协同、工作流编排、实时观测和底部技术支撑。它适合在论文和答辩中说明系统由哪些模块组成。
+上图从功能分解角度展示系统模块：员工服务端、服务台处理端、系统运维管理端、智能算法与关键技术四个架构分区。它适合在论文和答辩中说明系统由哪些模块组成。
 
-![智能工单处理系统总体架构](docs/design-spec/assets/ai-overall-architecture.png)
+![智能工单处理系统总体架构](docs/design-spec/assets/architecture/ai-overall-architecture.svg)
 
-上图展示静态系统架构：前端应用、FastAPI 接口层、LangGraph 编排层、Agent 智能决策层、平台能力层、MySQL/Qdrant 数据层和外部模型服务的关系。更细的调用链路与流程图见 [系统功能与总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md)。
+上图展示静态系统架构：三类用户角色、前端体验层、FastAPI 接口层、LangGraph 编排与 Agent 协同层、平台能力层、MySQL 数据层、独立 `rag-service`、外部模型服务和监控支撑之间的关系。可编辑源文件见 [ai-overall-architecture.drawio](docs/design-spec/assets/architecture/ai-overall-architecture.drawio)，更细的调用链路与流程图见 [系统功能与总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md)。
 
 ![智能工单处理系统流程图](docs/design-spec/assets/ticket-processing-flow.png)
 

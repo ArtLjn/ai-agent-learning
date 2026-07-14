@@ -1,0 +1,239 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1800" height="1040" viewBox="0 0 1800 1040" role="img" aria-labelledby="title desc">
+  <title id="title">AgentDesk 智能工单处理系统总体架构图</title>
+  <desc id="desc">展示员工服务端、服务台处理端、系统运维管理端、Agent 协同、平台能力、数据知识层以及外部模型和 RAG 服务的关系。</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#f8fbff"/>
+      <stop offset="0.58" stop-color="#eef7ff"/>
+      <stop offset="1" stop-color="#f7fff7"/>
+    </linearGradient>
+    <linearGradient id="blueHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#2563eb"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="purpleHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#7c3aed"/>
+      <stop offset="1" stop-color="#06b6d4"/>
+    </linearGradient>
+    <linearGradient id="greenHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#16a34a"/>
+      <stop offset="1" stop-color="#22c55e"/>
+    </linearGradient>
+    <linearGradient id="orangeHead" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset="1" stop-color="#f59e0b"/>
+    </linearGradient>
+    <filter id="shadow" x="-15%" y="-25%" width="130%" height="150%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrowBlue" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#2563eb"/>
+    </marker>
+    <marker id="arrowGreen" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#16a34a"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto">
+      <path d="M2,2 L10,6 L2,10 Z" fill="#f97316"/>
+    </marker>
+    <style>
+      .title { font: 700 42px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .subtitle { font: 500 20px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #475569; }
+      .panel-title { font: 700 24px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #fff; }
+      .section-title { font: 700 22px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #0f172a; }
+      .label { font: 700 18px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #1e293b; }
+      .small { font: 500 14px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .tiny { font: 500 12px -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; fill: #64748b; }
+      .box { fill: #fff; stroke: #cbd5e1; stroke-width: 1.5; }
+      .chip { fill: #f8fafc; stroke: #94a3b8; stroke-width: 1.3; }
+      .blue { fill: #eff6ff; stroke: #3b82f6; }
+      .cyan { fill: #ecfeff; stroke: #06b6d4; }
+      .purple { fill: #f5f3ff; stroke: #8b5cf6; }
+      .green { fill: #f0fdf4; stroke: #22c55e; }
+      .amber { fill: #fffbeb; stroke: #f59e0b; }
+      .orange { fill: #fff7ed; stroke: #f97316; }
+      .dash { stroke-dasharray: 8 8; }
+      .arrow { fill: none; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1800" height="1040" fill="url(#bg)"/>
+  <text x="900" y="62" text-anchor="middle" class="title">AgentDesk 智能工单处理系统总体架构图</text>
+  <text x="900" y="98" text-anchor="middle" class="subtitle">企业内部服务台工单闭环：提交、理解、分类、知识增强处理、质量审核、人工复核、补充恢复与反馈归档</text>
+
+  <g filter="url(#shadow)">
+    <rect x="42" y="145" width="240" height="620" rx="22" class="box"/>
+    <rect x="42" y="145" width="240" height="58" rx="22" fill="url(#blueHead)"/>
+    <text x="162" y="181" text-anchor="middle" class="panel-title">用户与角色</text>
+
+    <circle cx="162" cy="260" r="42" fill="#dbeafe"/>
+    <circle cx="162" cy="246" r="15" fill="#2563eb"/>
+    <path d="M120 300 Q162 268 204 300 L204 318 L120 318 Z" fill="#2563eb"/>
+    <text x="162" y="356" text-anchor="middle" class="section-title">企业内部员工</text>
+    <text x="162" y="384" text-anchor="middle" class="small">提报工单 / 补充材料</text>
+    <text x="162" y="405" text-anchor="middle" class="small">查看进度 / 验收反馈</text>
+
+    <circle cx="162" cy="490" r="42" fill="#dcfce7"/>
+    <circle cx="162" cy="476" r="15" fill="#16a34a"/>
+    <path d="M120 530 Q162 498 204 530 L204 548 L120 548 Z" fill="#16a34a"/>
+    <text x="162" y="586" text-anchor="middle" class="section-title">服务台处理人员</text>
+    <text x="162" y="614" text-anchor="middle" class="small">人工审核 / 知识维护</text>
+    <text x="162" y="635" text-anchor="middle" class="small">运营分析 / 操作审计</text>
+
+    <circle cx="162" cy="700" r="30" fill="#ffedd5"/>
+    <path d="M145 702 L159 716 L181 680" fill="none" stroke="#f97316" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="162" y="764" text-anchor="middle" class="section-title">系统运维人员</text>
+    <text x="162" y="792" text-anchor="middle" class="small">流程监控 / 策略调试 / 健康治理</text>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="320" y="132" width="1110" height="780" rx="24" fill="#ffffff" stroke="#b6c6d8" stroke-width="2"/>
+    <text x="875" y="170" text-anchor="middle" class="section-title">AgentDesk 主系统</text>
+
+    <rect x="348" y="198" width="1054" height="120" rx="18" class="blue"/>
+    <rect x="348" y="198" width="1054" height="42" rx="18" fill="url(#blueHead)"/>
+    <text x="380" y="226" class="panel-title">前端体验层</text>
+    <text x="570" y="226" class="small" fill="#e0f2fe">React + TypeScript 管理端</text>
+    <g>
+      <rect x="376" y="258" width="135" height="38" rx="9" class="chip"/>
+      <text x="443" y="282" text-anchor="middle" class="label">登录 / 仪表盘</text>
+      <rect x="529" y="258" width="135" height="38" rx="9" class="chip"/>
+      <text x="596" y="282" text-anchor="middle" class="label">工单管理</text>
+      <rect x="682" y="258" width="135" height="38" rx="9" class="chip"/>
+      <text x="749" y="282" text-anchor="middle" class="label">审核工作台</text>
+      <rect x="835" y="258" width="135" height="38" rx="9" class="chip"/>
+      <text x="902" y="282" text-anchor="middle" class="label">Agent 监控</text>
+      <rect x="988" y="258" width="135" height="38" rx="9" class="chip"/>
+      <text x="1055" y="282" text-anchor="middle" class="label">知识库</text>
+      <rect x="1141" y="258" width="135" height="38" rx="9" class="chip"/>
+      <text x="1208" y="282" text-anchor="middle" class="label">设置与统计</text>
+    </g>
+
+    <rect x="348" y="344" width="1054" height="120" rx="18" class="cyan"/>
+    <rect x="348" y="344" width="1054" height="42" rx="18" fill="url(#blueHead)"/>
+    <text x="380" y="372" class="panel-title">接口与实时通信层</text>
+    <text x="640" y="372" class="small" fill="#e0f2fe">FastAPI · Session 鉴权 · WebSocket</text>
+    <g>
+      <rect x="376" y="404" width="148" height="38" rx="9" class="chip"/>
+      <text x="450" y="428" text-anchor="middle" class="label">登录鉴权接口</text>
+      <rect x="546" y="404" width="148" height="38" rx="9" class="chip"/>
+      <text x="620" y="428" text-anchor="middle" class="label">工单接口</text>
+      <rect x="716" y="404" width="148" height="38" rx="9" class="chip"/>
+      <text x="790" y="428" text-anchor="middle" class="label">审核接口</text>
+      <rect x="886" y="404" width="148" height="38" rx="9" class="chip"/>
+      <text x="960" y="428" text-anchor="middle" class="label">追踪接口</text>
+      <rect x="1056" y="404" width="148" height="38" rx="9" class="chip"/>
+      <text x="1130" y="428" text-anchor="middle" class="label">知识库接口</text>
+      <rect x="1226" y="404" width="148" height="38" rx="9" class="chip"/>
+      <text x="1300" y="428" text-anchor="middle" class="label">实时推送通道</text>
+    </g>
+
+    <rect x="348" y="490" width="1054" height="156" rx="18" class="purple"/>
+    <rect x="348" y="490" width="1054" height="42" rx="18" fill="url(#purpleHead)"/>
+    <text x="380" y="518" class="panel-title">LangGraph 编排与 Agent 协同层</text>
+    <text x="760" y="518" class="small" fill="#ede9fe">状态机 · 条件路由 · 人机协同恢复子图</text>
+    <rect x="635" y="552" width="480" height="40" rx="10" fill="#ffffff" stroke="#8b5cf6" stroke-width="1.8"/>
+    <text x="875" y="578" text-anchor="middle" class="label">CoordinatorAgent：全局调度 / 辅助审核 / 恢复决策</text>
+    <g>
+      <rect x="376" y="614" width="155" height="42" rx="10" class="chip"/>
+      <text x="453" y="632" text-anchor="middle" class="label">TicketIntentAgent</text>
+      <text x="453" y="651" text-anchor="middle" class="tiny">意图结构化</text>
+      <rect x="550" y="614" width="155" height="42" rx="10" class="chip"/>
+      <text x="627" y="632" text-anchor="middle" class="label">ClassifierAgent</text>
+      <text x="627" y="651" text-anchor="middle" class="tiny">分类与风险识别</text>
+      <rect x="724" y="614" width="168" height="42" rx="10" class="chip"/>
+      <text x="808" y="632" text-anchor="middle" class="label">ReActProcessorAgent</text>
+      <text x="808" y="651" text-anchor="middle" class="tiny">检索与处理</text>
+      <rect x="911" y="614" width="155" height="42" rx="10" class="chip"/>
+      <text x="988" y="632" text-anchor="middle" class="label">ReviewerAgent</text>
+      <text x="988" y="651" text-anchor="middle" class="tiny">质量审核</text>
+      <rect x="1085" y="614" width="155" height="42" rx="10" class="chip"/>
+      <text x="1162" y="632" text-anchor="middle" class="label">人工接管</text>
+      <text x="1162" y="651" text-anchor="middle" class="tiny">通过 / 改写 / 重处理 / 补充</text>
+    </g>
+
+    <rect x="348" y="672" width="1054" height="112" rx="18" class="green"/>
+    <rect x="348" y="672" width="1054" height="42" rx="18" fill="url(#greenHead)"/>
+    <text x="380" y="700" class="panel-title">平台能力层</text>
+    <text x="560" y="700" class="small" fill="#dcfce7">稳定性、可观测性与运行支撑</text>
+    <g>
+      <rect x="376" y="732" width="135" height="36" rx="9" class="chip"/>
+      <text x="443" y="755" text-anchor="middle" class="label">模型路由</text>
+      <rect x="529" y="732" width="135" height="36" rx="9" class="chip"/>
+      <text x="596" y="755" text-anchor="middle" class="label">LLM 缓存</text>
+      <rect x="682" y="732" width="135" height="36" rx="9" class="chip"/>
+      <text x="749" y="755" text-anchor="middle" class="label">重试降级</text>
+      <rect x="835" y="732" width="135" height="36" rx="9" class="chip"/>
+      <text x="902" y="755" text-anchor="middle" class="label">权限控制</text>
+      <rect x="988" y="732" width="135" height="36" rx="9" class="chip"/>
+      <text x="1055" y="755" text-anchor="middle" class="label">执行追踪</text>
+      <rect x="1141" y="732" width="135" height="36" rx="9" class="chip"/>
+      <text x="1208" y="755" text-anchor="middle" class="label">指标监控</text>
+    </g>
+
+    <rect x="348" y="810" width="1054" height="72" rx="18" class="green"/>
+    <rect x="348" y="810" width="1054" height="42" rx="18" fill="url(#greenHead)"/>
+    <text x="380" y="838" class="panel-title">数据与知识层</text>
+    <text x="590" y="838" class="small" fill="#dcfce7">SQLAlchemy async · MySQL · Trace / Span · 配置</text>
+    <g>
+      <rect x="620" y="858" width="150" height="32" rx="8" class="chip"/>
+      <text x="695" y="879" text-anchor="middle" class="label">业务主库</text>
+      <rect x="790" y="858" width="150" height="32" rx="8" class="chip"/>
+      <text x="865" y="879" text-anchor="middle" class="label">人工审核表</text>
+      <rect x="960" y="858" width="150" height="32" rx="8" class="chip"/>
+      <text x="1035" y="879" text-anchor="middle" class="label">Trace / Span</text>
+      <rect x="1130" y="858" width="150" height="32" rx="8" class="chip"/>
+      <text x="1205" y="879" text-anchor="middle" class="label">系统配置</text>
+    </g>
+  </g>
+
+  <g filter="url(#shadow)">
+    <rect x="1470" y="145" width="288" height="620" rx="22" class="box"/>
+    <rect x="1470" y="145" width="288" height="58" rx="22" fill="url(#orangeHead)"/>
+    <text x="1614" y="181" text-anchor="middle" class="panel-title">外部依赖与运行支撑</text>
+
+    <rect x="1500" y="236" width="228" height="76" rx="14" class="orange"/>
+    <text x="1614" y="270" text-anchor="middle" class="section-title">大模型接口</text>
+    <text x="1614" y="294" text-anchor="middle" class="small">意图理解 / 生成 / 评审</text>
+
+    <rect x="1500" y="342" width="228" height="92" rx="14" class="green"/>
+    <text x="1614" y="376" text-anchor="middle" class="section-title">rag-service</text>
+    <text x="1614" y="401" text-anchor="middle" class="small">解析 / 检索 / 重排</text>
+    <text x="1614" y="423" text-anchor="middle" class="small">Qdrant 向量库</text>
+
+    <rect x="1500" y="464" width="228" height="76" rx="14" class="amber"/>
+    <text x="1614" y="498" text-anchor="middle" class="section-title">人工审核队列</text>
+    <text x="1614" y="522" text-anchor="middle" class="small">挂起 / 建议 / 决策恢复</text>
+
+    <rect x="1500" y="570" width="228" height="76" rx="14" class="blue"/>
+    <text x="1614" y="604" text-anchor="middle" class="section-title">Prometheus / Grafana</text>
+    <text x="1614" y="628" text-anchor="middle" class="small">HTTP / Agent / LLM 指标</text>
+
+    <rect x="1500" y="676" width="228" height="76" rx="14" class="purple"/>
+    <text x="1614" y="710" text-anchor="middle" class="section-title">运维调试台</text>
+    <text x="1614" y="734" text-anchor="middle" class="small">Prompt / Token / Trace</text>
+  </g>
+
+  <path class="arrow" d="M282 330 H340" stroke="#2563eb" marker-end="url(#arrowBlue)"/>
+  <path class="arrow" d="M282 520 H340" stroke="#2563eb" marker-end="url(#arrowBlue)"/>
+  <path class="arrow" d="M282 714 H340" stroke="#f97316" marker-end="url(#arrowOrange)"/>
+  <path class="arrow" d="M875 318 V344" stroke="#2563eb" marker-end="url(#arrowBlue)"/>
+  <path class="arrow" d="M875 464 V490" stroke="#2563eb" marker-end="url(#arrowBlue)"/>
+  <path class="arrow" d="M875 646 V672" stroke="#16a34a" marker-end="url(#arrowGreen)"/>
+  <path class="arrow" d="M875 784 V810" stroke="#16a34a" marker-end="url(#arrowGreen)"/>
+  <path class="arrow" d="M892 614 C1080 520 1265 392 1490 384" stroke="#16a34a" marker-end="url(#arrowGreen)"/>
+  <path class="arrow" d="M988 552 C1180 500 1320 262 1490 270" stroke="#f97316" marker-end="url(#arrowOrange)"/>
+  <path class="arrow" d="M1240 630 C1320 642 1398 510 1490 502" stroke="#f97316" marker-end="url(#arrowOrange)"/>
+  <path class="arrow dash" d="M1110 755 C1250 740 1365 608 1490 608" stroke="#2563eb" marker-end="url(#arrowBlue)"/>
+  <path class="arrow dash" d="M1055 755 C1210 800 1350 726 1490 714" stroke="#7c3aed" marker-end="url(#arrowOrange)"/>
+
+  <g filter="url(#shadow)">
+    <rect x="42" y="815" width="240" height="128" rx="18" fill="#ffffff" stroke="#93c5fd" stroke-width="1.8" stroke-dasharray="7 7"/>
+    <text x="72" y="850" class="label">图例</text>
+    <line x1="76" y1="878" x2="130" y2="878" stroke="#2563eb" stroke-width="3" marker-end="url(#arrowBlue)"/>
+    <text x="146" y="884" class="small">主调用 / 数据流</text>
+    <line x1="76" y1="914" x2="130" y2="914" stroke="#f97316" stroke-width="3" stroke-dasharray="7 7" marker-end="url(#arrowOrange)"/>
+    <text x="146" y="920" class="small">外部服务 / 运维支撑</text>
+  </g>
+
+  <text x="900" y="978" text-anchor="middle" class="subtitle">图 4-1 AgentDesk 智能工单处理系统总体架构图（v2.2）</text>
+</svg>

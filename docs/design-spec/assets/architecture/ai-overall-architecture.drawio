@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="drawio" version="26.0.0">
+  <diagram name="AgentDesk 总体架构">
+    <mxGraphModel dx="1800" dy="1040" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1800" pageHeight="1040" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="AgentDesk 智能工单处理系统总体架构图" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=34;fontStyle=1;fontColor=#0f172a;" vertex="1" parent="1">
+          <mxGeometry x="520" y="30" width="760" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="企业内部服务台工单闭环：提交、理解、分类、知识增强处理、质量审核、人工复核、补充恢复与反馈归档" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=16;fontColor=#475569;" vertex="1" parent="1">
+          <mxGeometry x="410" y="82" width="980" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="roles" value="用户与角色" style="swimlane;html=1;rounded=1;startSize=48;fillColor=#eff6ff;strokeColor=#3b82f6;fontColor=#0f172a;fontStyle=1;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="40" y="145" width="240" height="620" as="geometry" />
+        </mxCell>
+        <mxCell id="role_staff" value="企业内部员工&#xa;提报工单 / 补充材料&#xa;查看进度 / 验收反馈" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#3b82f6;fontSize=15;fontStyle=1;" vertex="1" parent="roles">
+          <mxGeometry x="28" y="90" width="184" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="role_desk" value="服务台处理人员&#xa;人工审核 / 知识维护&#xa;运营分析 / 操作审计" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#22c55e;fontSize=15;fontStyle=1;" vertex="1" parent="roles">
+          <mxGeometry x="28" y="280" width="184" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="role_ops" value="系统运维人员&#xa;流程监控 / 策略调试&#xa;健康治理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#f97316;fontSize=15;fontStyle=1;" vertex="1" parent="roles">
+          <mxGeometry x="28" y="470" width="184" height="90" as="geometry" />
+        </mxCell>
+
+        <mxCell id="system" value="AgentDesk 主系统" style="swimlane;html=1;rounded=1;startSize=48;fillColor=#ffffff;strokeColor=#94a3b8;fontColor=#0f172a;fontStyle=1;fontSize=20;" vertex="1" parent="1">
+          <mxGeometry x="320" y="132" width="1110" height="780" as="geometry" />
+        </mxCell>
+        <mxCell id="frontend" value="前端体验层&#xa;React + TypeScript 管理端&#xa;登录 / 仪表盘 · 工单管理 · 审核工作台 · Agent 监控 · 知识库 · 设置与统计" style="swimlane;html=1;rounded=1;startSize=40;fillColor=#eff6ff;strokeColor=#3b82f6;fontSize=16;fontStyle=1;" vertex="1" parent="system">
+          <mxGeometry x="28" y="66" width="1054" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="api" value="接口与实时通信层&#xa;FastAPI · Session 鉴权 · WebSocket&#xa;登录鉴权接口 · 工单接口 · 审核接口 · 追踪接口 · 知识库接口 · 实时推送通道" style="swimlane;html=1;rounded=1;startSize=40;fillColor=#ecfeff;strokeColor=#06b6d4;fontSize=16;fontStyle=1;" vertex="1" parent="system">
+          <mxGeometry x="28" y="212" width="1054" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="agent_layer" value="LangGraph 编排与 Agent 协同层&#xa;状态机 · 条件路由 · 人机协同恢复子图" style="swimlane;html=1;rounded=1;startSize=40;fillColor=#f5f3ff;strokeColor=#8b5cf6;fontSize=16;fontStyle=1;" vertex="1" parent="system">
+          <mxGeometry x="28" y="358" width="1054" height="156" as="geometry" />
+        </mxCell>
+        <mxCell id="coordinator" value="CoordinatorAgent：全局调度 / 辅助审核 / 恢复决策" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#8b5cf6;fontSize=15;fontStyle=1;" vertex="1" parent="agent_layer">
+          <mxGeometry x="286" y="62" width="480" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="intent" value="TicketIntentAgent&#xa;意图结构化" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#94a3b8;fontSize=13;fontStyle=1;" vertex="1" parent="agent_layer">
+          <mxGeometry x="28" y="124" width="155" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="classifier" value="ClassifierAgent&#xa;分类与风险识别" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#94a3b8;fontSize=13;fontStyle=1;" vertex="1" parent="agent_layer">
+          <mxGeometry x="202" y="124" width="155" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="processor" value="ReActProcessorAgent&#xa;检索与处理" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#94a3b8;fontSize=13;fontStyle=1;" vertex="1" parent="agent_layer">
+          <mxGeometry x="376" y="124" width="168" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="reviewer" value="ReviewerAgent&#xa;质量审核" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#94a3b8;fontSize=13;fontStyle=1;" vertex="1" parent="agent_layer">
+          <mxGeometry x="563" y="124" width="155" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="human" value="人工接管&#xa;通过 / 改写 / 重处理 / 补充" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#94a3b8;fontSize=13;fontStyle=1;" vertex="1" parent="agent_layer">
+          <mxGeometry x="737" y="124" width="170" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="platform" value="平台能力层&#xa;稳定性、可观测性与运行支撑&#xa;模型路由 · LLM 缓存 · 重试降级 · 权限控制 · 执行追踪 · 指标监控" style="swimlane;html=1;rounded=1;startSize=40;fillColor=#f0fdf4;strokeColor=#22c55e;fontSize=16;fontStyle=1;" vertex="1" parent="system">
+          <mxGeometry x="28" y="540" width="1054" height="112" as="geometry" />
+        </mxCell>
+        <mxCell id="data" value="数据与知识层&#xa;SQLAlchemy async · MySQL · Trace / Span · 配置&#xa;业务主库 · 人工审核表 · Trace / Span · 系统配置" style="swimlane;html=1;rounded=1;startSize=40;fillColor=#f0fdf4;strokeColor=#22c55e;fontSize=16;fontStyle=1;" vertex="1" parent="system">
+          <mxGeometry x="28" y="678" width="1054" height="72" as="geometry" />
+        </mxCell>
+
+        <mxCell id="external" value="外部依赖与运行支撑" style="swimlane;html=1;rounded=1;startSize=48;fillColor=#fff7ed;strokeColor=#f97316;fontColor=#0f172a;fontStyle=1;fontSize=18;" vertex="1" parent="1">
+          <mxGeometry x="1470" y="145" width="288" height="620" as="geometry" />
+        </mxCell>
+        <mxCell id="llm" value="大模型接口&#xa;意图理解 / 生成 / 评审" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#f97316;fontSize=15;fontStyle=1;" vertex="1" parent="external">
+          <mxGeometry x="30" y="90" width="228" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="rag" value="rag-service&#xa;解析 / 检索 / 重排&#xa;Qdrant 向量库" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f0fdf4;strokeColor=#22c55e;fontSize=15;fontStyle=1;" vertex="1" parent="external">
+          <mxGeometry x="30" y="196" width="228" height="92" as="geometry" />
+        </mxCell>
+        <mxCell id="queue" value="人工审核队列&#xa;挂起 / 建议 / 决策恢复" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fffbeb;strokeColor=#f59e0b;fontSize=15;fontStyle=1;" vertex="1" parent="external">
+          <mxGeometry x="30" y="318" width="228" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="monitoring" value="Prometheus / Grafana&#xa;HTTP / Agent / LLM 指标" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#eff6ff;strokeColor=#3b82f6;fontSize=15;fontStyle=1;" vertex="1" parent="external">
+          <mxGeometry x="30" y="424" width="228" height="76" as="geometry" />
+        </mxCell>
+        <mxCell id="dev_console" value="运维调试台&#xa;Prompt / Token / Trace" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f3ff;strokeColor=#8b5cf6;fontSize=15;fontStyle=1;" vertex="1" parent="external">
+          <mxGeometry x="30" y="530" width="228" height="76" as="geometry" />
+        </mxCell>
+
+        <mxCell id="e_roles_staff" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#2563eb;strokeWidth=2.5;" edge="1" parent="1" source="role_staff" target="frontend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_roles_desk" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#2563eb;strokeWidth=2.5;" edge="1" parent="1" source="role_desk" target="frontend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_roles_ops" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#f97316;strokeWidth=2.5;" edge="1" parent="1" source="role_ops" target="frontend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_front_api" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#2563eb;strokeWidth=2.5;" edge="1" parent="system" source="frontend" target="api">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_api_agent" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#2563eb;strokeWidth=2.5;" edge="1" parent="system" source="api" target="agent_layer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_agent_platform" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#16a34a;strokeWidth=2.5;" edge="1" parent="system" source="agent_layer" target="platform">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_platform_data" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#16a34a;strokeWidth=2.5;" edge="1" parent="system" source="platform" target="data">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_processor_rag" value="知识检索增强" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#16a34a;strokeWidth=2.5;fontSize=12;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="processor" target="rag">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_agent_llm" value="LLM / Embedding" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#f97316;strokeWidth=2.5;fontSize=12;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="coordinator" target="llm">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_human_queue" value="挂起与恢复" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;endArrow=blockThin;endFill=1;strokeColor=#f97316;strokeWidth=2.5;fontSize=12;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="human" target="queue">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_metrics" value="指标" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=blockThin;endFill=1;strokeColor=#2563eb;strokeWidth=2.5;fontSize=12;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="platform" target="monitoring">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_trace" value="Trace / Prompt / Token" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;dashed=1;endArrow=blockThin;endFill=1;strokeColor=#7c3aed;strokeWidth=2.5;fontSize=12;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="platform" target="dev_console">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
