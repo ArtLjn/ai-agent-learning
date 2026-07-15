@@ -7,7 +7,8 @@
 历史学习产物已归档到 `archive/learning/`，包括 ReAct、Plan-Execute、Reflection、论文阅读助手和文档处理工作流等示例。主源码目录保留：
 
 1. **多 Agent 工单系统**（`src/multi_agent_system/`）：基于 LangGraph 的工单处理服务
-2. **RAG 辅助模块**（`src/rag_systems/`）：个人知识库相关能力，可作为工单知识库设计参考
+
+RAG 检索能力已拆分到独立 `rag-service` 项目，主系统通过 `src/multi_agent_system/tools/rag_client.py` 调用其 HTTP 接口。
 
 本文档重点分析完整的工单处理系统。
 
