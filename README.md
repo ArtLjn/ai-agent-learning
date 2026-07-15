@@ -4,9 +4,9 @@
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![License](https://img.shields.io/badge/License-MIT-blue)
 
-AgentDesk 是一个基于 LangGraph 的多智能体工单自动化系统。系统将自然语言工单转为结构化任务，并由 `TicketIntentAgent`、`ClassifierAgent`、`ReActProcessorAgent`、`ReviewerAgent`、`CoordinatorAgent` 协同完成意图理解、分类路由、知识增强处理、质量审核、人工复核、用户补充恢复和执行追踪。
+AgentDesk 是一个面向企业内部服务台场景的智能工单处理系统。系统以“内部员工提交服务请求 → 智能理解分类 → 知识增强处理 → 质量审核 → 人工复核 → 用户补充 → 反馈归档”为业务主线，由 `TicketIntentAgent`、`ClassifierAgent`、`ReActProcessorAgent`、`ReviewerAgent`、`CoordinatorAgent` 协同完成自动处理、人工兜底和执行追踪。
 
-> 设计文档已按企业内部服务台工单场景同步到 v2.2。答辩或汇报优先阅读：[设计规范总览](docs/design-spec/README.md) · [总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md) · [核心流程](docs/design-spec/01_正式设计/02_工单处理流程设计.md) · [数据存储](docs/design-spec/01_正式设计/05_数据存储设计.md) · [接口协议](docs/design-spec/03_接口协议/01_HTTP_API接口协议.md)
+> 设计文档已同步到 v2.2 定稿口径。答辩或汇报优先阅读：[设计规范总览](docs/design-spec/README.md) · [业务架构梳理](docs/design-spec/00_预设计/04_业务架构梳理.md) · [总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md) · [核心流程](docs/design-spec/01_正式设计/02_工单处理流程设计.md) · [RAG 独立服务](docs/design-spec/01_正式设计/11_RAG服务独立项目设计.md) · [定稿设计](docs/specs/2026-07-10-ticket-processing-system-final-design.md)
 
 ## 核心特性
 
@@ -19,21 +19,23 @@ AgentDesk 是一个基于 LangGraph 的多智能体工单自动化系统。系�
 - **Prometheus 监控**：HTTP / Agent / LLM / 缓存全链路指标，Grafana 可视化
 - **分布式追踪 + 决策链**：Span 树记录 Agent 轨迹、LLM 输入输出、工具调用、Token 用量、关键决策点
 - **WebSocket 实时推送**：工单状态 / 审核队列实时同步前端
-- **MySQL + Qdrant 数据底座**：MySQL 存储核心业务与 trace 数据，Qdrant 提供知识库向量检索
+- **MySQL + Qdrant 数据底座**：MySQL 存储核心业务与 trace 数据，独立 `rag-service` 负责 Qdrant 知识检索与重排
 
 ## 系统架构
+
+v2.2 对外按四个架构分区表达：员工服务端、服务台处理端、系统运维管理端、智能算法与关键技术。三类登录用户围绕工单业务协作，智能处理引擎作为后台执行能力贯穿理解、检索、处理、审核和编排链路。
 
 ![智能工单处理系统模块架构图](docs/design-spec/assets/architecture/system-4-modules-tree.drawio.png)
 
 上图从功能分解角度展示系统模块：员工服务端、服务台处理端、系统运维管理端、智能算法与关键技术四个架构分区。它适合在论文和答辩中说明系统由哪些模块组成。
 
-![智能工单处理系统总体架构](docs/design-spec/assets/architecture/ai-overall-architecture.svg)
+![智能工单处理系统总体架构](docs/design-spec/assets/architecture/ai-overall-architecture.drawio.png)
 
 上图展示静态系统架构：三类用户角色、前端体验层、FastAPI 接口层、LangGraph 编排与 Agent 协同层、平台能力层、MySQL 数据层、独立 `rag-service`、外部模型服务和监控支撑之间的关系。可编辑源文件见 [ai-overall-architecture.drawio](docs/design-spec/assets/architecture/ai-overall-architecture.drawio)，更细的调用链路与流程图见 [系统功能与总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md)。
 
-![智能工单处理系统流程图](docs/design-spec/assets/ticket-processing-flow.png)
+![智能工单处理系统流程图](docs/design-spec/assets/ticket-processing-flow.drawio.png)
 
-上图展示端到端业务流转：工单创建、意图结构化、分类路由、ReAct 处理、质量审核、人工审核、用户补充、工作流恢复和结果归档。模块架构图回答“系统由什么组成”，流程图回答“工单如何流转”。
+上图展示端到端业务流转：工单创建、意图结构化、分类路由、ReAct 处理、质量审核、人工审核、用户补充、工作流恢复和结果归档。可编辑源文件见 [ticket-processing-flow.drawio](docs/design-spec/assets/ticket-processing-flow.drawio)。模块架构图回答“系统由什么组成”，流程图回答“工单如何流转”。
 
 ## 项目结构
 
@@ -48,7 +50,7 @@ src/multi_agent_system/
 └── config.py         # 全局配置
 ```
 
-配套前端位于 `web/`，设计文档位于 `docs/design-spec/`。
+配套前端位于 `web/`，设计文档位于 `docs/design-spec/`。RAG 能力已从主系统内嵌学习模块拆分为独立 `rag-service` 项目，主系统后续通过 `tools/rag_client.py` 以 HTTP 方式调用；旧的 `src/rag_systems/personal_knowledge_base/` 学习模块不再作为主线代码维护。
 
 ## 快速开始
 
@@ -157,7 +159,7 @@ curl http://localhost:9001/api/traces/{trace_id}/decisions
 | 前端 | React 19 + TypeScript + TailwindCSS + shadcn/ui |
 | 数据校验 | Pydantic |
 | 业务数据库 | MySQL + SQLAlchemy 2.0 async + aiomysql |
-| 向量数据库 | Qdrant |
+| RAG 服务 | 独立 `rag-service`（FastAPI + Qdrant，解析 / 检索 / 重排） |
 | 登录鉴权 | Starlette Session + bcrypt |
 | 监控 | Prometheus + Grafana |
 | 日志 | loguru |
@@ -167,11 +169,15 @@ curl http://localhost:9001/api/traces/{trace_id}/decisions
 
 - [项目架构导读](docs/project-guide.md) — 完整架构说明与代码阅读指南
 - [多智能体系统设计](docs/multi-agent-system-guide.md) — Agent 协同与决策机制
-- [设计规范总览](docs/design-spec/README.md) — v1.3 设计文档入口
+- [设计规范总览](docs/design-spec/README.md) — v2.2 定稿设计文档入口
+- [业务架构梳理](docs/design-spec/00_预设计/04_业务架构梳理.md) — 企业内部服务台工单业务闭环
 - [系统功能与总体架构](docs/design-spec/00_预设计/02_系统功能与总体架构.md) — 模块架构图、总体架构图、流程图和分层说明
 - [多智能体协同架构](docs/design-spec/01_正式设计/01_多智能体协同架构.md) — Agent 职责边界与协作关系
 - [工单处理流程设计](docs/design-spec/01_正式设计/02_工单处理流程设计.md) — 自动处理、重试、人工审核恢复流程
 - [数据存储设计](docs/design-spec/01_正式设计/05_数据存储设计.md) — MySQL 表结构与核心数据关系
+- [RAG 服务独立项目设计](docs/design-spec/01_正式设计/11_RAG服务独立项目设计.md) — 主系统与独立 RAG 服务的 HTTP 协作
+- [Token 成本控制台设计](docs/design-spec/01_正式设计/12_Token成本控制台设计.md) — 系统级模型用量统计
+- [开发人员工作台设计](docs/design-spec/01_正式设计/13_开发人员工作台设计.md) — Trace、Prompt、RAG 调试与 Token 观测
 - [HTTP API 接口协议](docs/design-spec/03_接口协议/01_HTTP_API接口协议.md) — 前后端接口契约
 - [WebSocket 实时推送协议](docs/design-spec/03_接口协议/02_WebSocket实时推送协议.md) — 工单状态和审核事件推送
 
